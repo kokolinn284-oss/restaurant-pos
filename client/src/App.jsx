@@ -9,6 +9,7 @@ import Kitchen from './screens/Kitchen.jsx';
 import MenuAdmin from './screens/MenuAdmin.jsx';
 import Inventory from './screens/Inventory.jsx';
 import Members from './screens/Members.jsx';
+import Expenses from './screens/Expenses.jsx';
 import Reports from './screens/Reports.jsx';
 import Settings from './screens/Settings.jsx';
 import { Icon, ThemeToggle, LangToggle } from './components/ui.jsx';
@@ -20,6 +21,7 @@ const NAV = [
   { key: 'menu', label: 'မီနူး', short: 'မီနူး', icon: 'menu', tone: 'emerald' },
   { key: 'inventory', label: 'ဂိုဒေါင်း', short: 'ဂိုဒေါင်း', icon: 'box', tone: 'amber' },
   { key: 'members', label: 'အဖွဲ့ဝင်', short: 'အဖွဲ့ဝင်', icon: 'users', tone: 'cyan' },
+  { key: 'expenses', label: 'အသုံးစရိတ်', short: 'အသုံးစရိတ်', icon: 'cash', tone: 'rose' },
   { key: 'reports', label: 'အစီရင်ခံစာ', short: 'အစီရင်ခံစာ', icon: 'chart', tone: 'violet' },
   { key: 'settings', label: 'ဆက်တင်', short: 'ဆက်တင်', icon: 'gear', tone: 'slate' }
 ];
@@ -166,8 +168,9 @@ export default function App() {
       case 'dashboard': return <Dashboard data={data} go={goto} />;
       case 'kitchen': return <Kitchen data={data} reload={reload} showToast={showToast} />;
       case 'menu': return <MenuAdmin data={data} reload={reload} showToast={showToast} />;
-      case 'inventory': return <Inventory reload={reload} showToast={showToast} />;
+      case 'inventory': return <Inventory reload={reload} showToast={showToast} go={goto} />;
       case 'members': return <Members data={data} reload={reload} showToast={showToast} />;
+      case 'expenses': return <Expenses staff={staff} reload={reload} showToast={showToast} />;
       case 'reports': return <Reports data={data} showToast={showToast} />;
       case 'settings': return <Settings data={data} reload={reload} showToast={showToast} onLogout={logout} />;
       default:

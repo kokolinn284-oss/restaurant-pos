@@ -240,6 +240,10 @@ ensureColumn('order_items', 'stock_deducted', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('orders', 'promotion_id', 'INTEGER');
 ensureColumn('menu_items', 'is_alcohol', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('menu_items', 'station', "TEXT NOT NULL DEFAULT 'kitchen'");
+ensureColumn('expenses', 'spent_on', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('expenses', 'method', "TEXT NOT NULL DEFAULT 'cash'");
+ensureColumn('expenses', 'vendor', "TEXT NOT NULL DEFAULT ''");
+db.exec("UPDATE expenses SET spent_on = date(created_at) WHERE spent_on = ''");
 
 const count = (table) => db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get().c;
 

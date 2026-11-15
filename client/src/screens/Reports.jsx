@@ -3,19 +3,9 @@ import { api, money, today } from '../api.js';
 import { useI18n } from '../i18n.jsx';
 import { Icon, Modal, Field } from '../components/ui.jsx';
 import Receipt from '../components/Receipt.jsx';
+import { downloadCsv } from '../csv.js';
 
 const METHOD_KEY = { cash: 'လက်ငင်း', kbzpay: 'KBZPay', wavepay: 'WavePay', bank: 'ဘဏ်/ကတ်', credit: 'အကြွေး' };
-
-function downloadCsv(filename, header, rows) {
-  const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = [header.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))];
-  const url = URL.createObjectURL(new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 export default function Reports({ data, showToast }) {
   const { t } = useI18n();

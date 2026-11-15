@@ -3,15 +3,13 @@ import { api, money } from '../api.js';
 import { useI18n } from '../i18n.jsx';
 import { Icon, Modal, Field, Empty } from '../components/ui.jsx';
 
-export default function Inventory({ reload, showToast }) {
+export default function Inventory({ reload, showToast, go }) {
   const { t } = useI18n();
-  const [inv, setInv] = useState({ items: [], moves: [], expenses: [] });
+  const [inv, setInv] = useState({ items: [], moves: [] });
   const [moveItem, setMoveItem] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [expOpen, setExpOpen] = useState(false);
   const [form, setForm] = useState({ name: '', unit: 'ကီလို', qty: 0, reorder_level: 0, cost: 0 });
   const [move, setMove] = useState({ type: 'in', qty: '', note: '' });
-  const [exp, setExp] = useState({ category: 'အထွေထွေ', amount: '', note: '' });
 
   const load = async () => {
     try { setInv(await api('/inventory')); } catch {}
@@ -39,18 +37,6 @@ export default function Inventory({ reload, showToast }) {
     } catch (e) { showToast(e.message); }
   };
 
-  const addExpense = async () => {
-    if (!exp.amount) return showToast(t('ပမာဏ ထည့်ပါ'));
-    try {
-      await api('/expenses', { method: 'POST', body: JSON.stringify(exp) });
-      setExpOpen(false);
-      setExp({ category: 'အထွေထွေ', amount: '', note: '' });
-      await load();
-      if (reload) await reload();
-      showToast(t('အသုံးစရိတ် မှတ်ပြီးပါပြီ'));
-    } catch (e) { showToast(e.message); }
-  };
-
   const lowCount = inv.items.filter(it => it.qty <= it.reorder_level).length;
 
   return (
@@ -62,7 +48,7 @@ export default function Inventory({ reload, showToast }) {
         </div>
         <div className="row gap">
           {lowCount > 0 && <span className="badge bad">{lowCount} {t('ပြတ်တော့မည်')}</span>}
-          <button className="btn ghost" onClick={() => setExpOpen(true)}><Icon name="cash" size={16} /> {t('အသုံးစရိတ်')}</button>
+          <button className="btn ghost" onClick={() => go('expenses')}><Icon name="cash" size={16} /> {t('အသုံးစရိတ်')}</button>
           <button className="btn" onClick={() => setAddOpen(true)}><Icon name="plus" size={16} /> {t('ပစ္စည်း')}</button>
         </div>
       </div>
@@ -91,8 +77,7 @@ export default function Inventory({ reload, showToast }) {
         </div>
       )}
 
-      <div className="two-col">
-        <section className="panel">
+      <section className="panel">
           <div className="panel-head"><h3><Icon name="box" size={16} /> {t('မကြာမီ လှုပ်ရှားမှုများ')}</h3></div>
           {inv.moves.length === 0 ? <div className="empty">{t('မရှိသေးပါ')}</div> : (
             <div className="list">
@@ -112,20 +97,6 @@ export default function Inventory({ reload, showToast }) {
             </div>
           )}
         </section>
-        <section className="panel">
-          <div className="panel-head"><h3><Icon name="cash" size={16} /> {t('အသုံးစရိတ်')}</h3></div>
-          {inv.expenses.length === 0 ? <div className="empty">{t('မရှိသေးပါ')}</div> : (
-            <div className="list">
-              {inv.expenses.slice(0, 10).map(x => (
-                <div className="list-row static" key={x.id}>
-                  <div className="grow"><strong>{x.category}</strong><small className="muted">{x.created_at} {x.note && `· ${x.note}`}</small></div>
-                  <span className="amount">{money(x.amount)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
 
       {addOpen && (
         <Modal title={t('ပစ္စည်း အသစ်')} onClose={() => setAddOpen(false)} footer={<>
@@ -158,16 +129,6 @@ export default function Inventory({ reload, showToast }) {
         </Modal>
       )}
 
-      {expOpen && (
-        <Modal title={t('အသုံးစရိတ် မှတ်တမ်း')} onClose={() => setExpOpen(false)} footer={<>
-          <button className="btn ghost" onClick={() => setExpOpen(false)}>{t('မလုပ်တော့')}</button>
-          <button className="btn" onClick={addExpense}>{t('သိမ်းမည်')}</button>
-        </>}>
-          <Field label={t('အမျိုးအစား')}><input value={exp.category} onChange={e => setExp({ ...exp, category: e.target.value })} /></Field>
-          <Field label={t('ပမာဏ')}><input type="number" value={exp.amount} onChange={e => setExp({ ...exp, amount: e.target.value })} /></Field>
-          <Field label={t('မှတ်ချက်')}><input value={exp.note} onChange={e => setExp({ ...exp, note: e.target.value })} /></Field>
-        </Modal>
-      )}
     </div>
   );
 }

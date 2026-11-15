@@ -127,6 +127,7 @@ try {
   const waiter = await login('2222');
   assert((await req('/api/reports/summary', { token: waiter })).status === 403, 'waiter must not read reports');
   assert((await req('/api/settings', { token: waiter })).status === 403, 'waiter must not read settings');
+  assert((await req('/api/expenses', { token: waiter })).status === 403, 'waiter must not read expenses');
   assert((await req('/api/backup', { token: waiter })).status === 403, 'waiter must not download backup');
   assert((await req('/api/orders', { method: 'POST', token: waiter, body: { type: 'takeaway' } })).status === 200, 'waiter should create orders');
 
@@ -135,6 +136,28 @@ try {
   assert((await req('/api/backup', { token: cashier })).status === 403, 'cashier must not download backup');
   assert((await req('/api/shifts/open', { method: 'POST', token: cashier, body: { opening_cash: 10000 } })).status === 200, 'cashier should open shift');
 
+  const shiftBefore = await req('/api/shifts/current', { token: cashier });
+  const exp = await req('/api/expenses', {
+    method: 'POST', token: cashier,
+    body: { category: 'ပစ္စည်းဝယ်ခြင်း', amount: 500, vendor: 'test supplier', method: 'cash', spent_on: date }
+  });
+  assert(exp.status === 200, `cashier should add expense: ${JSON.stringify(exp.data)}`);
+  const expList = await req(`/api/expenses?from=${date}&to=${date}`, { token: cashier });
+  assert(expList.status === 200 && expList.data.total === 500 && expList.data.cash === 500, 'expense list totals wrong');
+  assert(expList.data.rows.length === 1 && expList.data.rows[0].staff_name, 'expense row staff missing');
+  const expId = expList.data.rows[0].id;
+  assert((await req(`/api/expenses/${expId}`, { method: 'DELETE', token: cashier })).status === 403, 'cashier must not delete expenses');
+  const shiftNow = await req('/api/shifts/current', { token: cashier });
+  assert(shiftNow.data.expectedCash === shiftBefore.data.expectedCash - 500, `cash expense must lower expected cash: ${shiftBefore.data.expectedCash} -> ${shiftNow.data.expectedCash}`);
+
+  const withExpense = await req(`/api/reports/summary?date=${date}`, { token: owner });
+  assert(withExpense.data.expenses === 500, 'summary expense total wrong');
+  assert(withExpense.data.netProfit === withExpense.data.profit - 500, 'summary net profit wrong');
+  assert(withExpense.data.expenseByCategory[0]?.amount === 500, 'summary expense by category wrong');
+  assert((await req(`/api/expenses/${expId}`, { method: 'DELETE', token: owner })).status === 200, 'owner should delete expense');
+  const afterDelete = await req(`/api/expenses?from=${date}&to=${date}`, { token: cashier });
+  assert(afterDelete.data.total === 0 && afterDelete.data.rows.length === 0, 'expense delete failed');
+
   const logout = await req('/api/auth/logout', { method: 'POST', token: owner });
   assert(logout.status === 200, 'logout failed');
   assert((await req('/api/bootstrap', { token: owner })).status === 401, 'logout must invalidate session');
@@ -142,7 +165,7 @@ try {
   for (let i = 0; i < 10; i++) await req('/api/auth/login', { method: 'POST', body: { pin: '0000' } });
   assert((await req('/api/auth/login', { method: 'POST', body: { pin: '0000' } })).status === 429, 'login rate limit not enforced');
 
-  console.log('SMOKE OK — auth, roles, order flow, split payment, history, backup, profit/staff reports');
+  console.log('SMOKE OK — auth, roles, order flow, split payment, history, backup, profit/staff reports, expenses');
 } catch (e) {
   console.error('SMOKE FAILED:', e.message);
   if (serverLog) console.error(serverLog);

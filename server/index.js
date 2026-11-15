@@ -97,7 +97,7 @@ const WAITER_DENY = [
 const CASHIER_DENY = [
   ['*', /^\/(backup|staff)(\/|$)/],
   ['POST|PATCH|DELETE', /^\/settings(\/|$)/],
-  ['DELETE', /^\/(items|categories|tables|promotions)(\/|$)/]
+  ['DELETE', /^\/(items|categories|tables|promotions|expenses)(\/|$)/]
 ];
 function canAccess(role, method, reqPath) {
   if (role === 'owner') return true;
@@ -710,7 +710,12 @@ app.get('/api/reports/summary', (req, res) => {
     SELECT substr(closed_at,12,2) AS hour, COUNT(*) AS orders, SUM(total) AS amount
     FROM orders WHERE id IN (${ids.map(() => '?').join(',')}) GROUP BY hour ORDER BY hour
   `).all(...ids) : [];
-  const expenses = db.prepare("SELECT COALESCE(SUM(amount),0) AS amount FROM expenses WHERE date(created_at)=?").get(date).amount;
+  const expenseDay = "COALESCE(NULLIF(spent_on, ''), date(created_at))";
+  const expenses = db.prepare(`SELECT COALESCE(SUM(amount),0) AS amount FROM expenses WHERE ${expenseDay}=?`).get(date).amount;
+  const expenseByCategory = db.prepare(`
+    SELECT category, SUM(amount) AS amount FROM expenses WHERE ${expenseDay}=?
+    GROUP BY category ORDER BY amount DESC
+  `).all(date);
   const openCount = db.prepare("SELECT COUNT(*) AS c FROM orders WHERE status='open'").get().c;
   const creditOutstanding = db.prepare("SELECT COALESCE(SUM(amount - paid),0) AS amount FROM credits WHERE settled_at IS NULL").get().amount;
   const cost = ids.length ? db.prepare(`
@@ -728,6 +733,7 @@ app.get('/api/reports/summary', (req, res) => {
   res.json({
     date, orderCount: orders.length, total, discount, tax, service, expenses, creditOutstanding,
     netSales, cost, profit, margin: netSales ? Math.round(profit / netSales * 100) : 0,
+    netProfit: profit - expenses, expenseByCategory,
     avg: orders.length ? Math.round(total / orders.length) : 0,
     byMethod, topItems, byHour, openCount,
     alcoholSales: alcohol.amount, alcoholQty: alcohol.qty
@@ -807,10 +813,56 @@ app.post('/api/inventory/:id/move', (req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/expenses', (req, res) => {
+  const from = req.query.from || ymdLocal();
+  const to = req.query.to || from;
+  const q = String(req.query.q || '').trim();
+  const category = String(req.query.category || '').trim();
+  const day = "COALESCE(NULLIF(e.spent_on, ''), date(e.created_at))";
+  const where = [`${day} BETWEEN ? AND ?`];
+  const args = [from, to];
+  if (category) { where.push('e.category = ?'); args.push(category); }
+  if (q) {
+    where.push('(e.note LIKE ? OR e.vendor LIKE ? OR e.category LIKE ?)');
+    args.push(`%${q}%`, `%${q}%`, `%${q}%`);
+  }
+  const rows = db.prepare(`
+    SELECT e.id, e.category, e.amount, e.note, e.created_at, e.staff_id, e.vendor, e.method,
+           ${day} AS spent_on, s.name AS staff_name
+    FROM expenses e LEFT JOIN staff s ON s.id = e.staff_id
+    WHERE ${where.join(' AND ')} ORDER BY spent_on DESC, e.id DESC LIMIT 500
+  `).all(...args);
+  const byCategory = Object.values(rows.reduce((m, r) => {
+    const key = r.category || '';
+    m[key] = m[key] || { category: key, amount: 0 };
+    m[key].amount += r.amount;
+    return m;
+  }, {})).sort((a, b) => b.amount - a.amount);
+  res.json({
+    rows,
+    count: rows.length,
+    total: rows.reduce((s, r) => s + r.amount, 0),
+    cash: rows.filter(r => r.method === 'cash').reduce((s, r) => s + r.amount, 0),
+    bank: rows.filter(r => r.method !== 'cash').reduce((s, r) => s + r.amount, 0),
+    byCategory
+  });
+});
+
 app.post('/api/expenses', (req, res) => {
-  const { category = '', amount, note = '' } = req.body;
-  db.prepare('INSERT INTO expenses (category, amount, note, staff_id) VALUES (?, ?, ?, ?)')
-    .run(category, Math.round(Number(amount) || 0), note, req.staff.id);
+  const { category = '', amount, note = '', spent_on, method = 'cash', vendor = '' } = req.body;
+  const amt = Math.round(Number(amount) || 0);
+  if (amt <= 0) return res.status(400).json({ error: 'ပမာဏ ထည့်ပါ' });
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(String(spent_on || '')) ? spent_on : ymdLocal();
+  db.prepare(`INSERT INTO expenses (category, amount, note, spent_on, method, vendor, staff_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(String(category).trim(), amt, String(note).trim(), day, method === 'bank' ? 'bank' : 'cash', String(vendor).trim(), req.staff.id);
+  broadcast('expenses');
+  res.json({ ok: true });
+});
+
+app.delete('/api/expenses/:id', (req, res) => {
+  db.prepare('DELETE FROM expenses WHERE id = ?').run(Number(req.params.id));
+  broadcast('expenses');
   res.json({ ok: true });
 });
 
@@ -872,10 +924,17 @@ function shiftSummary(shift) {
     SELECT COUNT(*) AS c, COALESCE(SUM(total), 0) AS total FROM orders
     WHERE status = 'paid' AND closed_at >= ? ${shift.closed_at ? 'AND closed_at <= ?' : ''}
   `).get(...(shift.closed_at ? [shift.opened_at, shift.closed_at] : [shift.opened_at]));
+  const expArgs = [shift.opened_at];
+  if (shift.closed_at) expArgs.push(shift.closed_at);
+  const expenseCash = db.prepare(`
+    SELECT COALESCE(SUM(amount), 0) AS amount FROM expenses
+    WHERE method = 'cash' AND created_at >= ? ${shift.closed_at ? 'AND created_at <= ?' : ''}
+  `).get(...expArgs).amount;
+  const expectedCash = shift.opening_cash + cash - expenseCash;
   return {
-    shift, byMethod, cash, orderCount: orders.c, sales: orders.total,
-    expectedCash: shift.opening_cash + cash,
-    difference: shift.closing_cash != null ? shift.closing_cash - (shift.opening_cash + cash) : null
+    shift, byMethod, cash, expenseCash, orderCount: orders.c, sales: orders.total,
+    expectedCash,
+    difference: shift.closing_cash != null ? shift.closing_cash - expectedCash : null
   };
 }
 
