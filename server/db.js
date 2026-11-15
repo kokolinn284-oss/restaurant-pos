@@ -148,6 +148,11 @@ CREATE TABLE IF NOT EXISTS expenses (
   staff_id INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS expense_categories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL COLLATE NOCASE UNIQUE
+);
+
 CREATE TABLE IF NOT EXISTS shifts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   staff_id INTEGER,
@@ -244,6 +249,16 @@ ensureColumn('expenses', 'spent_on', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('expenses', 'method', "TEXT NOT NULL DEFAULT 'cash'");
 ensureColumn('expenses', 'vendor', "TEXT NOT NULL DEFAULT ''");
 db.exec("UPDATE expenses SET spent_on = date(created_at) WHERE spent_on = ''");
+
+const DEFAULT_EXPENSE_CATEGORIES = [
+  'ပစ္စည်းဝယ်ခြင်း', 'လစာ', 'ဆိုင်ငှားခ', 'မီတာ/ရေ', 'ပြင်ဆင်မှု', 'သယ်ယူပို့ဆောင်ခ', 'အခြား'
+];
+if (!db.prepare("SELECT 1 FROM settings WHERE key = 'expense_categories_seeded'").get()) {
+  const insCat = db.prepare('INSERT OR IGNORE INTO expense_categories (name) VALUES (?)');
+  for (const name of DEFAULT_EXPENSE_CATEGORIES) insCat.run(name);
+  for (const row of db.prepare("SELECT DISTINCT category FROM expenses WHERE TRIM(category) <> ''").all()) insCat.run(row.category);
+  db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('expense_categories_seeded', '1')").run();
+}
 
 const count = (table) => db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get().c;
 

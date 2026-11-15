@@ -90,13 +90,14 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 const WAITER_DENY = [
-  ['*', /^\/(shifts|reports|settings|backup|staff|credits|expenses)(\/|$)/],
+  ['*', /^\/(shifts|reports|settings|backup|staff|credits|expenses|expense-categories)(\/|$)/],
   ['POST', /^\/orders\/\d+\/(pay|void)$/],
   ['POST|PATCH|DELETE', /^\/(items|categories|inventory|promotions|tables)(\/|$)/]
 ];
 const CASHIER_DENY = [
   ['*', /^\/(backup|staff)(\/|$)/],
   ['POST|PATCH|DELETE', /^\/settings(\/|$)/],
+  ['POST|PATCH|DELETE', /^\/expense-categories(\/|$)/],
   ['DELETE', /^\/(items|categories|tables|promotions|expenses)(\/|$)/]
 ];
 function canAccess(role, method, reqPath) {
@@ -813,6 +814,56 @@ app.post('/api/inventory/:id/move', (req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/expense-categories', (req, res) => {
+  res.json(db.prepare(`
+    SELECT c.id, c.name, COUNT(e.id) AS count
+    FROM expense_categories c LEFT JOIN expenses e ON e.category = c.name
+    GROUP BY c.id ORDER BY c.id
+  `).all());
+});
+
+app.post('/api/expense-categories', (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'အမျိုးအစား အမည် ထည့်ပါ' });
+  if (name.length > 40) return res.status(400).json({ error: 'အမည် ရှည်လွန်းနေပါသည်' });
+  try {
+    const r = db.prepare('INSERT INTO expense_categories (name) VALUES (?)').run(name);
+    broadcast('expenses');
+    res.json({ ok: true, id: Number(r.lastInsertRowid) });
+  } catch {
+    res.status(409).json({ error: 'အမျိုးအစား ရှိပြီးသားပါ' });
+  }
+});
+
+app.patch('/api/expense-categories/:id', (req, res) => {
+  const cur = db.prepare('SELECT * FROM expense_categories WHERE id = ?').get(Number(req.params.id));
+  if (!cur) return res.status(404).json({ error: 'အမျိုးအစား မတွေ့ပါ' });
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'အမျိုးအစား အမည် ထည့်ပါ' });
+  if (name.length > 40) return res.status(400).json({ error: 'အမည် ရှည်လွန်းနေပါသည်' });
+  try {
+    db.exec('BEGIN');
+    db.prepare('UPDATE expense_categories SET name = ? WHERE id = ?').run(name, cur.id);
+    db.prepare('UPDATE expenses SET category = ? WHERE category = ?').run(name, cur.name);
+    db.exec('COMMIT');
+  } catch {
+    db.exec('ROLLBACK');
+    return res.status(409).json({ error: 'အမျိုးအစား ရှိပြီးသားပါ' });
+  }
+  broadcast('expenses');
+  res.json({ ok: true });
+});
+
+app.delete('/api/expense-categories/:id', (req, res) => {
+  const cur = db.prepare('SELECT * FROM expense_categories WHERE id = ?').get(Number(req.params.id));
+  if (!cur) return res.status(404).json({ error: 'အမျိုးအစား မတွေ့ပါ' });
+  const used = db.prepare('SELECT COUNT(*) AS c FROM expenses WHERE category = ?').get(cur.name).c;
+  if (used) return res.status(409).json({ error: `ဤအမျိုးအစားကို မှတ်တမ်း ${used} ခု အသုံးပြုနေပါသည် — ဖျက်မရပါ` });
+  db.prepare('DELETE FROM expense_categories WHERE id = ?').run(cur.id);
+  broadcast('expenses');
+  res.json({ ok: true });
+});
+
 app.get('/api/expenses', (req, res) => {
   const from = req.query.from || ymdLocal();
   const to = req.query.to || from;
@@ -853,9 +904,11 @@ app.post('/api/expenses', (req, res) => {
   const amt = Math.round(Number(amount) || 0);
   if (amt <= 0) return res.status(400).json({ error: 'ပမာဏ ထည့်ပါ' });
   const day = /^\d{4}-\d{2}-\d{2}$/.test(String(spent_on || '')) ? spent_on : ymdLocal();
+  const cat = String(category).trim();
+  if (cat) db.prepare('INSERT OR IGNORE INTO expense_categories (name) VALUES (?)').run(cat);
   db.prepare(`INSERT INTO expenses (category, amount, note, spent_on, method, vendor, staff_id)
     VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .run(String(category).trim(), amt, String(note).trim(), day, method === 'bank' ? 'bank' : 'cash', String(vendor).trim(), req.staff.id);
+    .run(cat, amt, String(note).trim(), day, method === 'bank' ? 'bank' : 'cash', String(vendor).trim(), req.staff.id);
   broadcast('expenses');
   res.json({ ok: true });
 });

@@ -22,20 +22,26 @@ export default function Expenses({ staff, reload, showToast }) {
   const [to, setTo] = useState(today);
   const [q, setQ] = useState('');
   const [category, setCategory] = useState('');
-  const [knownCats, setKnownCats] = useState(CATS);
+  const [cats, setCats] = useState([]);
+  const [catOpen, setCatOpen] = useState(false);
+  const [newCat, setNewCat] = useState('');
+  const [editCat, setEditCat] = useState(null);
   const [data, setData] = useState({ rows: [], count: 0, total: 0, cash: 0, bank: 0, byCategory: [] });
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState(newForm);
-  const canDelete = staff?.role === 'owner';
+  const canManage = staff?.role === 'owner';
+
+  const loadCats = async () => {
+    try { setCats(await api('/expense-categories')); } catch {}
+  };
+  useEffect(() => { loadCats(); }, []);
 
   const load = async () => {
     try {
       const p = new URLSearchParams({ from, to });
       if (q.trim()) p.set('q', q.trim());
       if (category) p.set('category', category);
-      const res = await api(`/expenses?${p}`);
-      setData(res);
-      if (!category) setKnownCats(prev => [...new Set([...prev, ...res.byCategory.map(c => c.category).filter(Boolean)])]);
+      setData(await api(`/expenses?${p}`));
     } catch (e) { showToast(e.message); }
   };
 
@@ -47,7 +53,7 @@ export default function Expenses({ staff, reload, showToast }) {
       await api('/expenses', { method: 'POST', body: JSON.stringify(form) });
       setAddOpen(false);
       setForm(newForm());
-      await load();
+      await Promise.all([load(), loadCats()]);
       if (reload) await reload();
       showToast(t('အသုံးစရိတ် မှတ်ပြီးပါပြီ'));
     } catch (e) { showToast(e.message); }
@@ -57,8 +63,44 @@ export default function Expenses({ staff, reload, showToast }) {
     if (!window.confirm(`${t('ဖျက်မှာ သေချာပါသလား?')}\n${x.category || ''} · ${money(x.amount)}`)) return;
     try {
       await api(`/expenses/${x.id}`, { method: 'DELETE' });
-      await load();
+      await Promise.all([load(), loadCats()]);
       if (reload) await reload();
+      showToast(t('ဖျက်ပြီးပါပြီ'));
+    } catch (e) { showToast(e.message); }
+  };
+
+  const addCat = async () => {
+    const name = newCat.trim();
+    if (!name) return showToast(t('အမျိုးအစား အမည် ထည့်ပါ'));
+    try {
+      await api('/expense-categories', { method: 'POST', body: JSON.stringify({ name }) });
+      setNewCat('');
+      await loadCats();
+      showToast(t('သိမ်းပြီးပါပြီ'));
+    } catch (e) { showToast(e.message); }
+  };
+
+  const renameCat = async () => {
+    if (!editCat) return;
+    const name = editCat.name.trim();
+    if (!name) return showToast(t('အမျိုးအစား အမည် ထည့်ပါ'));
+    try {
+      await api(`/expense-categories/${editCat.id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+      const renamedCurrent = category === editCat.old;
+      setEditCat(null);
+      await loadCats();
+      if (renamedCurrent) setCategory(name);
+      else await load();
+      showToast(t('သိမ်းပြီးပါပြီ'));
+    } catch (e) { showToast(e.message); }
+  };
+
+  const removeCat = async (c) => {
+    if (!window.confirm(`${t('ဖျက်မှာ သေချာပါသလား?')}\n${c.name}`)) return;
+    try {
+      await api(`/expense-categories/${c.id}`, { method: 'DELETE' });
+      if (category === c.name) setCategory('');
+      await loadCats();
       showToast(t('ဖျက်ပြီးပါပြီ'));
     } catch (e) { showToast(e.message); }
   };
@@ -70,6 +112,12 @@ export default function Expenses({ staff, reload, showToast }) {
     showToast(t('CSV ရယူပြီးပါပြီ'));
   };
 
+  const catOptions = [...new Set([
+    ...cats.map(c => c.name),
+    ...data.byCategory.map(c => c.category).filter(Boolean)
+  ])];
+  const formCats = cats.length ? cats.map(c => c.name) : CATS;
+
   return (
     <div className="stack">
       <div className="page-head">
@@ -78,8 +126,15 @@ export default function Expenses({ staff, reload, showToast }) {
           <p className="muted small">{t('ဆိုင်မှ ထွက်ငွေ — ပစ္စည်းဝယ်၊ လစာ၊ ငှားခ စသည်ဖြင့် မှတ်တမ်းတင်ပါ')}</p>
         </div>
         <div className="row gap">
+          {canManage && (
+            <button className="btn ghost" onClick={() => { setNewCat(''); setEditCat(null); setCatOpen(true); }}>
+              <Icon name="tag" size={16} /> {t('အမျိုးအစား စီမံ')}
+            </button>
+          )}
           <button className="btn ghost" onClick={exportCsv} disabled={!data.rows.length}>CSV</button>
-          <button className="btn" onClick={() => setAddOpen(true)}><Icon name="plus" size={16} /> {t('အသုံးစရိတ် ထည့်')}</button>
+          <button className="btn" onClick={() => { setForm({ ...newForm(), category: formCats[0] || CATS[0] }); setAddOpen(true); }}>
+            <Icon name="plus" size={16} /> {t('အသုံးစရိတ် ထည့်')}
+          </button>
         </div>
       </div>
 
@@ -89,7 +144,7 @@ export default function Expenses({ staff, reload, showToast }) {
           <input type="date" value={to} onChange={e => setTo(e.target.value)} />
           <select value={category} onChange={e => setCategory(e.target.value)}>
             <option value="">{t('အားလုံး')}</option>
-            {knownCats.map(c => <option key={c} value={c}>{c}</option>)}
+            {catOptions.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
         <div className="row gap">
@@ -149,7 +204,7 @@ export default function Expenses({ staff, reload, showToast }) {
                   <th>{t('ငွေပေးချေမှု')}</th>
                   <th>{t('မှတ်ချက်')}</th>
                   <th>{t('အသုံးစရိတ် ပမာဏ')}</th>
-                  {canDelete && <th />}
+                  {canManage && <th />}
                 </tr>
               </thead>
               <tbody>
@@ -161,7 +216,7 @@ export default function Expenses({ staff, reload, showToast }) {
                     <td>{t(METHODS[x.method] || x.method)}</td>
                     <td className="muted">{x.note || '—'}</td>
                     <td><strong>{money(x.amount)}</strong></td>
-                    {canDelete && (
+                    {canManage && (
                       <td>
                         <button className="icon-btn" onClick={() => remove(x)} aria-label={t('ဖျက်')}>
                           <Icon name="trash" size={15} />
@@ -176,6 +231,50 @@ export default function Expenses({ staff, reload, showToast }) {
         )}
       </section>
 
+      {catOpen && (
+        <Modal title={t('အမျိုးအစား စီမံ')} onClose={() => setCatOpen(false)}
+          footer={<button className="btn" onClick={() => setCatOpen(false)}>{t('ပိတ်')}</button>}>
+          <div className="row gap">
+            <input value={newCat} placeholder={t('အမျိုးအစား အသစ်')}
+              onChange={e => setNewCat(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addCat(); }} />
+            <button className="btn" onClick={addCat} disabled={!newCat.trim()}>{t('ပေါင်း')}</button>
+          </div>
+          <div className="list" style={{ marginTop: 12 }}>
+            {cats.length === 0 ? <div className="empty">{t('ဒေတာ မရှိပါ')}</div> : cats.map(c => (
+              editCat?.id === c.id ? (
+                <div className="list-row static" key={c.id}>
+                  <div className="grow">
+                    <input autoFocus style={{ width: '100%' }} value={editCat.name}
+                      onChange={e => setEditCat({ ...editCat, name: e.target.value })}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') renameCat();
+                        if (e.key === 'Escape') setEditCat(null);
+                      }} />
+                  </div>
+                  <button className="btn sm" onClick={renameCat}>{t('သိမ်းမည်')}</button>
+                  <button className="btn sm ghost" onClick={() => setEditCat(null)}>{t('မလုပ်တော့')}</button>
+                </div>
+              ) : (
+                <div className="list-row static" key={c.id}>
+                  <div className="grow">
+                    <strong>{c.name}</strong>
+                    <small className="muted">{c.count} {t('မှတ်တမ်း')}</small>
+                  </div>
+                  <button className="icon-btn" onClick={() => setEditCat({ id: c.id, name: c.name, old: c.name })}
+                    aria-label={t('ပြင်')} title={t('ပြင်')}>
+                    <Icon name="edit" size={15} />
+                  </button>
+                  <button className="icon-btn" onClick={() => removeCat(c)} aria-label={t('ဖျက်')} title={t('ဖျက်')}>
+                    <Icon name="trash" size={15} />
+                  </button>
+                </div>
+              )
+            ))}
+          </div>
+        </Modal>
+      )}
+
       {addOpen && (
         <Modal title={t('အသုံးစရိတ် ထည့်')} onClose={() => setAddOpen(false)} footer={<>
           <button className="btn ghost" onClick={() => setAddOpen(false)}>{t('မလုပ်တော့')}</button>
@@ -186,10 +285,9 @@ export default function Expenses({ staff, reload, showToast }) {
               <input type="date" value={form.spent_on} onChange={e => setForm({ ...form, spent_on: e.target.value })} />
             </Field>
             <Field label={t('အမျိုးအစား')}>
-              <input list="expense-cats" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} />
-              <datalist id="expense-cats">
-                {CATS.map(c => <option key={c} value={c} />)}
-              </datalist>
+              <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
+                {formCats.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
             </Field>
             <Field label={t('ပေးချေသူ')}>
               <input value={form.vendor} onChange={e => setForm({ ...form, vendor: e.target.value })} />

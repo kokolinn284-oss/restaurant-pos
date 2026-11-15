@@ -128,6 +128,7 @@ try {
   assert((await req('/api/reports/summary', { token: waiter })).status === 403, 'waiter must not read reports');
   assert((await req('/api/settings', { token: waiter })).status === 403, 'waiter must not read settings');
   assert((await req('/api/expenses', { token: waiter })).status === 403, 'waiter must not read expenses');
+  assert((await req('/api/expense-categories', { token: waiter })).status === 403, 'waiter must not read expense categories');
   assert((await req('/api/backup', { token: waiter })).status === 403, 'waiter must not download backup');
   assert((await req('/api/orders', { method: 'POST', token: waiter, body: { type: 'takeaway' } })).status === 200, 'waiter should create orders');
 
@@ -158,6 +159,36 @@ try {
   const afterDelete = await req(`/api/expenses?from=${date}&to=${date}`, { token: cashier });
   assert(afterDelete.data.total === 0 && afterDelete.data.rows.length === 0, 'expense delete failed');
 
+  const cats0 = await req('/api/expense-categories', { token: cashier });
+  assert(cats0.status === 200 && cats0.data.some(c => c.name === 'လစာ'), 'seed expense categories missing');
+  assert((await req('/api/expense-categories', { method: 'POST', token: cashier, body: { name: 'cashier cat' } })).status === 403, 'cashier must not add categories');
+  const newCat = await req('/api/expense-categories', { method: 'POST', token: owner, body: { name: 'စမ်းသပ်' } });
+  assert(newCat.status === 200 && newCat.data.id, 'owner add category failed');
+  assert((await req('/api/expense-categories', { method: 'POST', token: owner, body: { name: 'စမ်းသပ်' } })).status === 409, 'duplicate category must fail');
+  const catId = newCat.data.id;
+  const catExp = await req('/api/expenses', {
+    method: 'POST', token: owner, body: { category: 'စမ်းသပ်', amount: 200, method: 'cash', spent_on: date }
+  });
+  assert(catExp.status === 200, 'expense with managed category failed');
+  const catRow = (await req(`/api/expenses?from=${date}&to=${date}`, { token: owner })).data.rows.find(r => r.category === 'စမ်းသပ်');
+  assert(catRow, 'managed category expense missing');
+  assert((await req(`/api/expense-categories/${catId}`, { method: 'PATCH', token: owner, body: { name: 'စမ်းသပ်၂' } })).status === 200, 'category rename failed');
+  const renamedRows = (await req(`/api/expenses?from=${date}&to=${date}`, { token: owner })).data.rows;
+  assert(renamedRows.some(r => r.category === 'စမ်းသပ်၂'), 'rename must update expense rows');
+  assert((await req(`/api/expense-categories/${catId}`, { method: 'DELETE', token: owner })).status === 409, 'used category must not delete');
+  assert((await req(`/api/expenses/${catRow.id}`, { method: 'DELETE', token: owner })).status === 200, 'delete category expense failed');
+  assert((await req(`/api/expense-categories/${catId}`, { method: 'DELETE', token: owner })).status === 200, 'unused category delete failed');
+  const autoCat = await req('/api/expenses', {
+    method: 'POST', token: owner, body: { category: 'အလိုအလျောက်', amount: 100, spent_on: date }
+  });
+  assert(autoCat.status === 200, 'auto category expense failed');
+  const cats1 = await req('/api/expense-categories', { token: owner });
+  const autoRow = cats1.data.find(c => c.name === 'အလိုအလျောက်');
+  assert(autoRow, 'expense must auto-register its category');
+  const autoExp = (await req(`/api/expenses?from=${date}&to=${date}`, { token: owner })).data.rows.find(r => r.category === 'အလိုအလျောက်');
+  await req(`/api/expenses/${autoExp.id}`, { method: 'DELETE', token: owner });
+  assert((await req(`/api/expense-categories/${autoRow.id}`, { method: 'DELETE', token: owner })).status === 200, 'auto category cleanup failed');
+
   const logout = await req('/api/auth/logout', { method: 'POST', token: owner });
   assert(logout.status === 200, 'logout failed');
   assert((await req('/api/bootstrap', { token: owner })).status === 401, 'logout must invalidate session');
@@ -165,7 +196,7 @@ try {
   for (let i = 0; i < 10; i++) await req('/api/auth/login', { method: 'POST', body: { pin: '0000' } });
   assert((await req('/api/auth/login', { method: 'POST', body: { pin: '0000' } })).status === 429, 'login rate limit not enforced');
 
-  console.log('SMOKE OK — auth, roles, order flow, split payment, history, backup, profit/staff reports, expenses');
+  console.log('SMOKE OK — auth, roles, order flow, split payment, history, backup, profit/staff reports, expenses, categories');
 } catch (e) {
   console.error('SMOKE FAILED:', e.message);
   if (serverLog) console.error(serverLog);
