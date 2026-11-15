@@ -53,7 +53,7 @@ export default function Login({ onLogin }) {
         <div className="login-logo"><Icon name="bowl" size={36} /></div>
         <h1>{title}</h1>
         <div className="shop-en">{sub}</div>
-        <p className="muted" style={{ margin: '14px 0 0' }}>{t('PIN ကို ထည့်ပါ')}</p>
+        <p className="muted mt-14">{t('PIN ကို ထည့်ပါ')}</p>
 
         <div className="pin-dots" aria-label="PIN">
           {[0, 1, 2, 3].map(i => (

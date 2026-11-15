@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, money, today } from '../api.js';
 import { useI18n } from '../i18n.jsx';
-import { Icon, Modal, Field, Empty } from '../components/ui.jsx';
+import { Icon, Modal, Field, Empty, SearchBox } from '../components/ui.jsx';
 import { downloadCsv } from '../csv.js';
 
 const CATS = ['ပစ္စည်းဝယ်ခြင်း', 'လစာ', 'ဆိုင်ငှားခ', 'မီတာ/ရေ', 'ပြင်ဆင်မှု', 'သယ်ယူပို့ဆောင်ခ', 'အခြား'];
@@ -131,7 +131,9 @@ export default function Expenses({ staff, reload, showToast }) {
               <Icon name="tag" size={16} /> {t('အမျိုးအစား စီမံ')}
             </button>
           )}
-          <button className="btn ghost" onClick={exportCsv} disabled={!data.rows.length}>CSV</button>
+          <button className="btn ghost" onClick={exportCsv} disabled={!data.rows.length}>
+            <Icon name="download" size={16} /> <span className="hide-mobile">CSV</span>
+          </button>
           <button className="btn" data-action="add-expense" onClick={() => { setForm({ ...newForm(), category: formCats[0] || CATS[0] }); setAddOpen(true); }}>
             <Icon name="plus" size={16} /> {t('အသုံးစရိတ် ထည့်')}
           </button>
@@ -151,18 +153,20 @@ export default function Expenses({ staff, reload, showToast }) {
           </select>
         </div>
         <div className="toolbar-search">
-          <div className="search">
-            <Icon name="search" size={18} />
-            <input placeholder={t('ပေးချေသူ / မှတ်ချက် ရှာရန်…')} value={q}
-              onChange={e => setQ(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') load(); }} />
-            {q && <button className="link-btn" onClick={() => setQ('')} aria-label={t('ဖျက်')}><Icon name="close" size={15} /></button>}
-          </div>
-          <button className="btn" onClick={load}>{t('ရှာမည်')}</button>
+          <SearchBox
+            value={q}
+            onChange={setQ}
+            onSubmit={load}
+            placeholder={t('ပေးချေသူ / မှတ်ချက် ရှာရန်…')}
+          />
+          <button className="btn search-submit" onClick={load} aria-label={t('ရှာမည်')} title={t('ရှာမည်')}>
+            <Icon name="search" size={15} />
+            <span className="hide-mobile">{t('ရှာမည်')}</span>
+          </button>
         </div>
       </div>
 
-      <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))' }}>
+      <div className="stat-grid fluid">
         <div className="stat-card rose">
           <span>{t('စုစုပေါင်း အသုံးစရိတ်')}</span>
           <strong>{money(data.total)}</strong>
@@ -222,7 +226,7 @@ export default function Expenses({ staff, reload, showToast }) {
                     <td><strong>{money(x.amount)}</strong></td>
                     {canManage && (
                       <td>
-                        <button className="icon-btn" onClick={() => remove(x)} aria-label={t('ဖျက်')}>
+                        <button className="icon-btn act-delete" onClick={() => remove(x)} aria-label={t('ဖျက်')}>
                           <Icon name="trash" size={15} />
                         </button>
                       </td>
@@ -244,12 +248,12 @@ export default function Expenses({ staff, reload, showToast }) {
               onKeyDown={e => { if (e.key === 'Enter') addCat(); }} />
             <button className="btn" onClick={addCat} disabled={!newCat.trim()}>{t('ပေါင်း')}</button>
           </div>
-          <div className="list" style={{ marginTop: 12 }}>
+          <div className="list mt-12">
             {cats.length === 0 ? <div className="empty">{t('ဒေတာ မရှိပါ')}</div> : cats.map(c => (
               editCat?.id === c.id ? (
                 <div className="list-row static" key={c.id}>
                   <div className="grow">
-                    <input autoFocus style={{ width: '100%' }} value={editCat.name}
+                    <input autoFocus className="w-full" value={editCat.name}
                       onChange={e => setEditCat({ ...editCat, name: e.target.value })}
                       onKeyDown={e => {
                         if (e.key === 'Enter') renameCat();
@@ -265,11 +269,11 @@ export default function Expenses({ staff, reload, showToast }) {
                     <strong>{c.name}</strong>
                     <small className="muted">{c.count} {t('မှတ်တမ်း')}</small>
                   </div>
-                  <button className="icon-btn" onClick={() => setEditCat({ id: c.id, name: c.name, old: c.name })}
+                  <button className="icon-btn act-edit" onClick={() => setEditCat({ id: c.id, name: c.name, old: c.name })}
                     aria-label={t('ပြင်')} title={t('ပြင်')}>
                     <Icon name="edit" size={15} />
                   </button>
-                  <button className="icon-btn" onClick={() => removeCat(c)} aria-label={t('ဖျက်')} title={t('ဖျက်')}>
+                  <button className="icon-btn act-delete" onClick={() => removeCat(c)} aria-label={t('ဖျက်')} title={t('ဖျက်')}>
                     <Icon name="trash" size={15} />
                   </button>
                 </div>

@@ -100,7 +100,7 @@ export default function Kitchen({ data, reload, showToast }) {
               <strong>#{g.header.order_no}</strong>
               <span className="badge amber">{g.header.type === 'dine_in' ? g.header.table_name : g.header.type === 'delivery' ? t('ပို့ဆောင်') : t('ပါဆယ်')}</span>
               <span className="muted small">{ago(g.header.sent_at)}</span>
-              <button className="icon-btn" style={{ width: 34, height: 34, flexBasis: 34, borderRadius: 9 }} onClick={() => printTicket(g)} title={t('ပရင့်')}>
+              <button className="icon-btn small" onClick={() => printTicket(g)} title={t('ပရင့်')}>
                 <Icon name="print" size={16} />
               </button>
             </div>

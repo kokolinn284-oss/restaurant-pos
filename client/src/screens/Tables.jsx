@@ -159,13 +159,13 @@ export default function Tables({ data, openOrder, reload, showToast, staff, onli
       <section className="zone">
         <div className="zone-head">
           <h3>{t('ကြိုတင်မှာယူမှု')}</h3>
-          <button className="btn ghost sm" onClick={() => setResOpen(true)}><Icon name="plus" size={14} /> {t('ကြိုတင်မှာယူ')}</button>
+          <button className="btn ghost sm act-add" onClick={() => setResOpen(true)}><Icon name="plus" size={14} /> {t('ကြိုတင်မှာယူ')}</button>
         </div>
         {reservations.length === 0 ? <Empty text={t('ကြိုတင်မှာယူမှု မရှိပါ')} /> : (
           <div className="list">
             {reservations.map(r => (
               <div className="list-row static" key={r.id}>
-                <div className="avatar" style={{ background: 'var(--amber-soft)', color: 'var(--amber-ink)' }}>
+                <div className="avatar amber">
                   {(r.customer_name || '?').slice(0, 1)}
                 </div>
                 <div className="grow">
@@ -194,7 +194,7 @@ export default function Tables({ data, openOrder, reload, showToast, staff, onli
           <div className="list">
             {drafts.map(d => (
               <button key={d.key} className="list-row" onClick={() => openOrder(d.key)}>
-                <span className="quick-ico" style={{ width: 38, height: 38, flexBasis: 38, borderRadius: 11 }}>
+                <span className="quick-ico sm">
                   <Icon name={d.type === 'delivery' ? 'phone' : d.type === 'takeaway' ? 'cart' : 'table'} size={17} />
                 </span>
                 <div className="grow">
@@ -264,7 +264,7 @@ export default function Tables({ data, openOrder, reload, showToast, staff, onli
           <div className="list">
             {takeawayOrders.map(o => (
               <button key={o.id} className="list-row" onClick={() => openOrder(o.id)}>
-                <span className="quick-ico" style={{ width: 38, height: 38, flexBasis: 38, borderRadius: 11 }}>
+                <span className="quick-ico sm">
                   <Icon name={o.type === 'delivery' ? 'phone' : 'cart'} size={17} />
                 </span>
                 <div className="grow">
@@ -282,11 +282,11 @@ export default function Tables({ data, openOrder, reload, showToast, staff, onli
       {billsFor && (
         <Modal title={`${billsFor.table.name} — ${t('ဘီလ်များ')}`} onClose={() => setBillsFor(null)}
           footer={<button className="btn ghost" onClick={() => setBillsFor(null)}>{t('ပိတ်')}</button>}>
-          <p className="hint" style={{ marginTop: 0 }}>{t('ဒီစားပွဲမှာ ဘီလ် နှစ်ခုရှိနေပါတယ် — ဖွင့်မည့် ဘီလ်ကို ရွေးပါ။')}</p>
+          <p className="hint mt-0">{t('ဒီစားပွဲမှာ ဘီလ် နှစ်ခုရှိနေပါတယ် — ဖွင့်မည့် ဘီလ်ကို ရွေးပါ။')}</p>
           <div className="list">
             {billsFor.bills.map(o => (
               <button key={o.id} className="list-row" onClick={() => { setBillsFor(null); openOrder(o.id); }}>
-                <span className="quick-ico" style={{ width: 38, height: 38, flexBasis: 38, borderRadius: 11 }}>
+                <span className="quick-ico sm">
                   <Icon name="receipt" size={17} />
                 </span>
                 <div className="grow">

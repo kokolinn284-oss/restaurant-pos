@@ -53,7 +53,7 @@ export function ImagePickerModal({ currentImage, onSelect, onClose, showToast })
         </button>
       )}
     </>}>
-      <div className="tabs" style={{ marginBottom: 16 }}>
+      <div className="tabs mb-16">
         <button className={`tab ${tab === 'presets' ? 'on' : ''}`} onClick={() => setTab('presets')}>
           <Icon name="spark" size={15} /> {t('နမူနာ အစားအသောက်ပုံများ')}
         </button>
@@ -91,20 +91,20 @@ export function ImagePickerModal({ currentImage, onSelect, onClose, showToast })
             ref={fileInputRef}
             type="file"
             accept="image/*"
-            style={{ display: 'none' }}
+            className="is-hidden"
             onChange={handleFileChange}
           />
           <div className="upload-icon"><Icon name="camera" size={36} /></div>
           <h4>{uploading ? t('ပုံတင်နေပါသည်...') : t('ဓာတ်ပုံ ဖိုင် ရွေးချယ်ရန် နှိပ်ပါ')}</h4>
           <p className="muted small">{t('JPG, PNG, WebP ပုံများ ထည့်သွင်းနိုင်ပါသည်')}</p>
-          <button type="button" className="btn" disabled={uploading} style={{ marginTop: 12 }}>
+          <button type="button" className="btn mt-12" disabled={uploading}>
             <Icon name="upload" size={16} /> {t('ပုံဖိုင် ရွေးပါ')}
           </button>
         </div>
       )}
 
       {tab === 'url' && (
-        <div className="stack" style={{ gap: 12 }}>
+        <div className="stack gap-12">
           <label className="field">
             <span>{t('ပုံ URL ထည့်ပါ')}</span>
             <input

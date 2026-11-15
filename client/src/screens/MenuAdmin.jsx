@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, money } from '../api.js';
 import { useI18n } from '../i18n.jsx';
-import { Icon, Modal, Field, Empty, Switch } from '../components/ui.jsx';
+import { Icon, Modal, Field, Empty, Switch, SearchBox } from '../components/ui.jsx';
 import { DataTableToolbar, Pagination } from '../components/DataTableToolbar.jsx';
 import { ImagePickerModal } from '../components/FoodPresetPicker.jsx';
 import { getFoodImage } from '../foodPresets.js';
@@ -19,6 +19,8 @@ const emptyItem = {
   image: '',
   code: '',
 };
+
+const compactMoney = (n) => Number(n || 0).toLocaleString('en-US');
 
 const emptyPromo = {
   name: '',
@@ -586,7 +588,7 @@ export default function MenuAdmin({ data, reload, showToast }) {
                   })
                 }
               >
-                <Icon name="plus" size={16} /> {t('ဟင်း အသစ်')}
+                <Icon name="plus" size={16} /> <span className="hide-mobile">{t('ဟင်း အသစ်')}</span>
               </button>
             }
           />
@@ -598,7 +600,7 @@ export default function MenuAdmin({ data, reload, showToast }) {
             <>
               {/* VIEW MODE 1: GRID VIEW (Redesigned for maximum clarity & convenience) */}
               {viewMode === 'grid' && (
-                <div className="dish-card-grid">
+                <div className="dish-card-grid view-switch-panel">
                   {paginatedItems.map((it) => {
                     const isSelected = selectedIds.includes(it.id);
                     const cat = data.categories.find((c) => c.id === it.category_id);
@@ -677,22 +679,23 @@ export default function MenuAdmin({ data, reload, showToast }) {
                             {it.unit && <span className="dish-unit-pill">/{it.unit}</span>}
                           </div>
 
-                          {/* Financials: Price, Cost, Profit Margin */}
+                          {/* Compact one-line financials */}
                           <div className="dish-financials-box">
-                            <div className="price-item">
-                              <span className="fin-label">{t('ရောင်းဈေး')}</span>
-                              <strong className="fin-price">{money(it.price)}</strong>
-                            </div>
-                            <div className="price-divider" />
-                            <div className="cost-item">
-                              <span className="fin-label">{t('ကုန်ကျစရိတ်')}</span>
-                              <span className="fin-cost">{it.cost > 0 ? money(it.cost) : '—'}</span>
-                            </div>
+                            <span className="fin-item">
+                              <span className="fin-label">{t('ဈေး')}</span>
+                              <strong className="fin-price" title={money(it.price)}>{compactMoney(it.price)}</strong>
+                            </span>
+                            <span className="fin-item">
+                              <span className="fin-label">{t('ကုန်')}</span>
+                              <span className="fin-cost" title={it.cost > 0 ? money(it.cost) : ''}>
+                                {it.cost > 0 ? compactMoney(it.cost) : '—'}
+                              </span>
+                            </span>
                             {profit > 0 && (
-                              <div className="profit-tag" title={t('အသားတင် အမြတ်ငွေ')}>
-                                <small>+{money(profit)}</small>
-                                <span>({marginPct}%)</span>
-                              </div>
+                              <span className="profit-tag" title={`${t('အသားတင် အမြတ်ငွေ')} ${money(profit)}`}>
+                                +{compactMoney(profit)}
+                                <small>({marginPct}%)</small>
+                              </span>
                             )}
                           </div>
 
@@ -700,9 +703,10 @@ export default function MenuAdmin({ data, reload, showToast }) {
                           <div className="dish-card-foot">
                             <button
                               type="button"
-                              className="btn ghost sm icon-text"
+                              className="btn ghost sm icon-text act-recipe"
                               onClick={() => setRecipeFor(it)}
                               title={t('ပါဝင်ပစ္စည်းများ သတ်မှတ်မည်')}
+                              aria-label={t('ပါဝင်ပစ္စည်းများ သတ်မှတ်မည်')}
                             >
                               <Icon name="box" size={14} />
                               <span>{t('ပါဝင်ပစ္စည်း')}</span>
@@ -710,18 +714,20 @@ export default function MenuAdmin({ data, reload, showToast }) {
                             <div className="dish-actions-right">
                               <button
                                 type="button"
-                                className="btn ghost sm icon-text"
+                                className="btn ghost sm icon-text act-edit"
                                 onClick={() => setEdit({ ...it, categoryId: it.category_id })}
                                 title={t('ပြင်ဆင်ရန်')}
+                                aria-label={t('ပြင်ဆင်ရန်')}
                               >
                                 <Icon name="edit" size={13} />
                                 <span>{t('ပြင်')}</span>
                               </button>
                               <button
                                 type="button"
-                                className="icon-btn small danger"
+                                className="icon-btn small act-delete"
                                 onClick={() => removeItem(it)}
                                 title={t('ဖျက်')}
+                                aria-label={t('ဖျက်')}
                               >
                                 <Icon name="trash" size={14} />
                               </button>
@@ -736,11 +742,11 @@ export default function MenuAdmin({ data, reload, showToast }) {
 
               {/* VIEW MODE 2: TABLE VIEW */}
               {viewMode === 'table' && (
-                <div className="table-wrap">
+                <div className="table-wrap view-switch-panel">
                   <table className="table">
                     <thead>
                       <tr>
-                        <th style={{ width: 36 }}>
+                        <th className="col-xs">
                           <input
                             type="checkbox"
                             checked={allSelected}
@@ -748,7 +754,7 @@ export default function MenuAdmin({ data, reload, showToast }) {
                             aria-label={t('အားလုံး ရွေးမည်')}
                           />
                         </th>
-                        <th style={{ width: 56 }}>{t('ပုံ')}</th>
+                        <th className="col-thumb">{t('ပုံ')}</th>
                         <th>{t('အမည်')}</th>
                         <th>{t('ကုဒ်')}</th>
                         <th>{t('အမျိုးအစား')}</th>
@@ -782,7 +788,7 @@ export default function MenuAdmin({ data, reload, showToast }) {
                               </div>
                             </td>
                             <td>
-                              <div className="row gap" style={{ alignItems: 'center' }}>
+                              <div className="row gap">
                                 <strong>{it.name}</strong>
                                 {it.is_alcohol && <span className="alc-flag">18+</span>}
                               </div>
@@ -804,24 +810,24 @@ export default function MenuAdmin({ data, reload, showToast }) {
                                 {it.available ? t('ရောင်းချနေသည်') : t('ပိတ်ထားသည်')}
                               </button>
                             </td>
-                            <td className="right" style={{ whiteSpace: 'nowrap' }}>
+                            <td className="right nowrap">
                               <button
                                 type="button"
-                                className="link-btn"
+                                className="link-btn act-recipe"
                                 onClick={() => setRecipeFor(it)}
                               >
                                 <Icon name="box" size={13} /> {t('ပါဝင်ပစ္စည်း')}
                               </button>
                               <button
                                 type="button"
-                                className="link-btn"
+                                className="link-btn act-edit"
                                 onClick={() => setEdit({ ...it, categoryId: it.category_id })}
                               >
                                 {t('ပြင်')}
                               </button>
                               <button
                                 type="button"
-                                className="link-btn danger"
+                                className="link-btn act-delete"
                                 onClick={() => removeItem(it)}
                               >
                                 {t('ဖျက်')}
@@ -850,12 +856,12 @@ export default function MenuAdmin({ data, reload, showToast }) {
 
       {/* Categories / Type Management Tab */}
       {tab === 'categories' && (
-        <div className="stack" style={{ gap: 16 }}>
+        <div className="stack gap-16">
           {/* Header Toolbar */}
-          <div className="page-head" style={{ marginBottom: 0 }}>
+          <div className="page-head mb-0">
             <div>
               <h3>{t('ဟင်းပွဲ အမျိုးအစားများ (Type / Categories)')}</h3>
-              <p className="muted small" style={{ margin: '3px 0 0' }}>
+              <p className="muted small">
                 {t('အစားအသောက် အမျိုးအစားများ စီမံခြင်းနှင့် ပြသမည့် ဦးစားပေး အစီအစဉ်များ သတ်မှတ်ခြင်း')}
               </p>
             </div>
@@ -874,13 +880,7 @@ export default function MenuAdmin({ data, reload, showToast }) {
           </div>
 
           {/* Quick Stats Grid */}
-          <div
-            className="stats-grid"
-            style={{
-              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-              gap: 12,
-            }}
-          >
+          <div className="stats-grid">
             <div className="stat-card">
               <span className="stat-label">{t('စုစုပေါင်း အမျိုးအစား')}</span>
               <strong className="stat-val">{data.categories.length}</strong>
@@ -901,24 +901,12 @@ export default function MenuAdmin({ data, reload, showToast }) {
           </div>
 
           {/* Category Search Input */}
-          <div className="search-box" style={{ maxWidth: 360 }}>
-            <Icon name="search" size={16} />
-            <input
-              type="text"
-              value={catSearch}
-              onChange={(e) => setCatSearch(e.target.value)}
-              placeholder={t('အမျိုးအစား ရှာဖွေပါ...')}
-            />
-            {catSearch && (
-              <button
-                type="button"
-                className="clear-btn"
-                onClick={() => setCatSearch('')}
-              >
-                <Icon name="close" size={14} />
-              </button>
-            )}
-          </div>
+          <SearchBox
+            value={catSearch}
+            onChange={setCatSearch}
+            placeholder={t('အမျိုးအစား ရှာဖွေပါ...')}
+            className="narrow"
+          />
 
           {/* Categories Grid */}
           {data.categories.length === 0 ? (
@@ -956,7 +944,7 @@ export default function MenuAdmin({ data, reload, showToast }) {
                             onClick={() => moveCat(c, 'up')}
                             title={t('အထက်သို့ ရွှေ့မည်')}
                           >
-                            <Icon name="arrow" size={14} style={{ transform: 'rotate(-90deg)' }} />
+                            <Icon name="arrow" size={14} className="icon-up" />
                           </button>
                           <button
                             type="button"
@@ -965,7 +953,7 @@ export default function MenuAdmin({ data, reload, showToast }) {
                             onClick={() => moveCat(c, 'down')}
                             title={t('အောက်သို့ ရွှေ့မည်')}
                           >
-                            <Icon name="arrow" size={14} style={{ transform: 'rotate(90deg)' }} />
+                            <Icon name="arrow" size={14} className="icon-down" />
                           </button>
                         </div>
                       </div>
@@ -977,7 +965,7 @@ export default function MenuAdmin({ data, reload, showToast }) {
                         </div>
                         <div className="cat-stat-item">
                           <span className="stat-sub">{t('ရောင်းချနေသည်')}</span>
-                          <span className="badge ok" style={{ fontSize: 11, padding: '1px 6px', display: 'inline-flex', width: 'fit-content' }}>
+                          <span className="badge ok mini">
                             {activeCount} {t('မျိုး')}
                           </span>
                         </div>
@@ -995,10 +983,10 @@ export default function MenuAdmin({ data, reload, showToast }) {
                         >
                           <Icon name="search" size={13} /> {t('ဟင်းများ ကြည့်ရန်')}
                         </button>
-                        <div className="row gap" style={{ marginLeft: 'auto' }}>
+                        <div className="row gap ml-auto">
                           <button
                             type="button"
-                            className="btn ghost sm icon-text"
+                            className="btn ghost sm icon-text act-edit"
                             onClick={() => {
                               setCatEdit(c);
                               setCatForm({ name: c.name, sort: c.sort || 0 });
@@ -1010,7 +998,7 @@ export default function MenuAdmin({ data, reload, showToast }) {
                           </button>
                           <button
                             type="button"
-                            className="icon-btn small danger"
+                            className="icon-btn small act-delete"
                             onClick={() => delCat(c)}
                             title={dishes.length > 0 ? t('ဒီအမျိုးအစားတွင် ဟင်းများ ရှိနေပါသည်') : t('ဖျက်')}
                           >
@@ -1032,16 +1020,16 @@ export default function MenuAdmin({ data, reload, showToast }) {
           <div className="toolbar">
             <div>
               <h3>{t('ပရိုမိုးရှင်း')}</h3>
-              <p className="muted small" style={{ margin: '3px 0 0' }}>
+              <p className="muted small mt-3">
                 {t('ငွေရှင်းချိန် အလိုအလျောက် ရွေးချယ်နိုင်မည့် အထူးဈေးများ')}
               </p>
             </div>
             <button
               type="button"
-              className="btn amber"
+              className="btn"
               onClick={() => setPromoEdit({ ...emptyPromo })}
             >
-              <Icon name="plus" size={16} /> {t('ပရိုမိုးရှင်း အသစ်')}
+              <Icon name="plus" size={16} /> <span className="hide-mobile">{t('ပရိုမိုးရှင်း အသစ်')}</span>
             </button>
           </div>
           {promotions.length === 0 ? (
@@ -1069,17 +1057,17 @@ export default function MenuAdmin({ data, reload, showToast }) {
                   <div className="promo-meta">
                     <Icon name="clock" size={12} /> {p.start_time || '00:00'} – {p.end_time || '23:59'}
                   </div>
-                  <div className="row gap" style={{ marginTop: 4 }}>
+                  <div className="row gap mt-4">
                     <button
                       type="button"
-                      className="btn ghost sm"
+                      className="btn ghost sm act-edit"
                       onClick={() => setPromoEdit({ ...p })}
                     >
                       {t('ပြင်')}
                     </button>
                     <button
                       type="button"
-                      className="btn danger sm"
+                      className="btn sm act-delete"
                       onClick={() => removePromo(p)}
                     >
                       {t('ဖျက်')}
@@ -1150,7 +1138,7 @@ export default function MenuAdmin({ data, reload, showToast }) {
             </div>
           </div>
 
-          <div className="form-grid" style={{ marginTop: 14 }}>
+          <div className="form-grid mt-14">
             <Field label={t('အမည်')}>
               <input
                 value={edit.name}
@@ -1413,7 +1401,7 @@ export default function MenuAdmin({ data, reload, showToast }) {
             </button>
           </>}
         >
-          <p className="hint" style={{ marginTop: 0 }}>
+          <p className="hint mt-0">
             {t('ဒီဟင်း ရောင်းပြီးတိုင်း ပါဝင်ပစ္စည်းများ လက်ကျန်မှ အလိုအလျောက် နုတ်သွားမည်။')}
           </p>
           <div className="recipe-lines">
@@ -1445,7 +1433,7 @@ export default function MenuAdmin({ data, reload, showToast }) {
                   />
                   <button
                     type="button"
-                    className="icon-btn"
+                    className="icon-btn act-delete"
                     onClick={() => removeLine(i)}
                     aria-label={t('ဖျက်')}
                   >

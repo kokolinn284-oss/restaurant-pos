@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { api, money, today } from '../api.js';
 import { useI18n } from '../i18n.jsx';
-import { Icon } from '../components/ui.jsx';
+import { Icon, ModalFrame } from '../components/ui.jsx';
 
 const METHOD_KEY = {
   cash: 'လက်ငင်း',
@@ -166,7 +166,7 @@ export default function Dashboard({ data, go }) {
           </div>
 
           {/* Card 3: Active Dining Orders */}
-          <div className="stat-card-modern indigo" style={{ cursor: 'pointer' }} onClick={() => go('tables')}>
+          <div className="stat-card-modern indigo clickable" onClick={() => go('tables')}>
             <div className="scm-top">
               <span className="scm-title">{t('စားပွဲ & အော်ဒါ')}</span>
               <span className="scm-icon"><Icon name="table" size={18} /></span>
@@ -181,7 +181,7 @@ export default function Dashboard({ data, go }) {
           </div>
 
           {/* Card 4: Kitchen & Bar Status */}
-          <div className="stat-card-modern orange" style={{ cursor: 'pointer' }} onClick={() => go('kitchen')}>
+          <div className="stat-card-modern orange clickable" onClick={() => go('kitchen')}>
             <div className="scm-top">
               <span className="scm-title">{t('မီးဖို & ဘား')}</span>
               <span className="scm-icon"><Icon name="fire" size={18} /></span>
@@ -207,7 +207,7 @@ export default function Dashboard({ data, go }) {
           </div>
 
           {/* Card 6: Low Stock Alerts */}
-          <div className="stat-card-modern rose" style={{ cursor: 'pointer' }} onClick={() => go('inventory')}>
+          <div className="stat-card-modern rose clickable" onClick={() => go('inventory')}>
             <div className="scm-top">
               <span className="scm-title">{t('စတော့သတိပေး')}</span>
               <span className="scm-icon"><Icon name="box" size={18} /></span>
@@ -455,9 +455,8 @@ export default function Dashboard({ data, go }) {
 
       {/* Online Customer Catalog / QR Code Modal */}
       {catalogModalOpen && (
-        <div className="modal-backdrop" onClick={() => setCatalogModalOpen(false)}>
-          <div className="modal-panel catalog-share-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-head">
+        <ModalFrame className="catalog-share-modal" onClose={() => setCatalogModalOpen(false)}>
+          <div className="modal-head">
               <h3>📱 {t('QR မျှဝေရန်')}</h3>
               <button className="icon-btn" onClick={() => setCatalogModalOpen(false)}>
                 <Icon name="close" size={18} />
@@ -558,8 +557,7 @@ export default function Dashboard({ data, go }) {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </ModalFrame>
       )}
     </div>
   );

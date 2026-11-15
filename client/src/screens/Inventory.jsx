@@ -339,7 +339,7 @@ export default function Inventory({ reload, showToast, go }) {
         <>
           {/* VIEW MODE 1: GRID VIEW */}
           {viewMode === 'grid' && (
-            <div className="inv-grid">
+            <div className="inv-grid view-switch-panel">
               {paginatedItems.map((it) => {
                 const low = it.qty <= it.reorder_level;
                 const isSelected = selectedIds.includes(it.id);
@@ -353,8 +353,8 @@ export default function Inventory({ reload, showToast, go }) {
                     className={`inv-card ${low ? 'low' : ''} ${isSelected ? 'selected' : ''}`}
                     key={it.id}
                   >
-                    <div className="row between" style={{ alignItems: 'flex-start' }}>
-                      <label className="row gap" style={{ cursor: 'pointer', margin: 0, alignItems: 'center' }}>
+                    <div className="row between top">
+                      <label className="row gap checkbox-row">
                         <input
                           type="checkbox"
                           checked={isSelected}
@@ -362,7 +362,7 @@ export default function Inventory({ reload, showToast, go }) {
                         />
                         <div>
                           <strong className="inv-title">{it.name}</strong>
-                          {it.sku && <small className="muted" style={{ display: 'block' }}>{it.sku}</small>}
+                          {it.sku && <small className="muted block">{it.sku}</small>}
                         </div>
                       </label>
                       <span className={`badge ${low ? 'bad' : 'ok'}`}>
@@ -381,7 +381,7 @@ export default function Inventory({ reload, showToast, go }) {
                       <div className="stock-bar">
                         <i style={{ width: `${pct}%`, background: low ? '#ef4444' : '#10b981' }} />
                       </div>
-                      <div className="row between small muted" style={{ marginTop: 4 }}>
+                      <div className="row between small muted mt-4">
                         <span>{t('သတိပေးအဆင့်')} {it.reorder_level} {it.unit}</span>
                         <span>{t('ကုန်ကျ')} {money(it.cost)}</span>
                       </div>
@@ -390,7 +390,7 @@ export default function Inventory({ reload, showToast, go }) {
                     <div className="inv-actions-row">
                       <button
                         type="button"
-                        className="btn sm ghost icon-text"
+                        className="btn sm ghost icon-text act-add"
                         onClick={() => {
                           setMoveItem(it);
                           setMove({ type: 'in', qty: '', note: '' });
@@ -402,7 +402,7 @@ export default function Inventory({ reload, showToast, go }) {
                       </button>
                       <button
                         type="button"
-                        className="btn sm ghost icon-text"
+                        className="btn sm ghost icon-text act-remove"
                         onClick={() => {
                           setMoveItem(it);
                           setMove({ type: 'out', qty: '', note: '' });
@@ -414,7 +414,7 @@ export default function Inventory({ reload, showToast, go }) {
                       </button>
                       <button
                         type="button"
-                        className="btn sm ghost icon-text"
+                        className="btn sm ghost icon-text act-edit"
                         onClick={() => {
                           setEditItem(it);
                           setForm({ ...it });
@@ -427,7 +427,7 @@ export default function Inventory({ reload, showToast, go }) {
                       </button>
                       <button
                         type="button"
-                        className="icon-btn small danger"
+                        className="icon-btn small act-delete"
                         onClick={() => deleteItem(it)}
                         title={t('ဖျက်')}
                       >
@@ -442,11 +442,11 @@ export default function Inventory({ reload, showToast, go }) {
 
           {/* VIEW MODE 2: TABLE VIEW */}
           {viewMode === 'table' && (
-            <div className="table-wrap">
+            <div className="table-wrap view-switch-panel">
               <table className="table">
                 <thead>
                   <tr>
-                    <th style={{ width: 36 }}>
+                    <th className="col-xs">
                       <input
                         type="checkbox"
                         checked={allSelected}
@@ -494,7 +494,7 @@ export default function Inventory({ reload, showToast, go }) {
                             <span className="badge ok">{t('ပုံမှန်')}</span>
                           )}
                         </td>
-                        <td className="right" style={{ whiteSpace: 'nowrap' }}>
+                        <td className="right nowrap">
                           <button
                             type="button"
                             className="link-btn"
@@ -554,7 +554,7 @@ export default function Inventory({ reload, showToast, go }) {
       )}
 
       {/* Recent Movements Section */}
-      <section className="panel" style={{ marginTop: 12 }}>
+      <section className="panel mt-12">
         <div className="panel-head">
           <h3>
             <Icon name="box" size={16} /> {t('မကြာမီ လှုပ်ရှားမှုများ')}

@@ -276,7 +276,7 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
               </button>
             );
           })}
-          {items.length === 0 && <div className="empty" style={{ gridColumn: '1 / -1' }}>{t('ဟင်း မတွေ့ပါ')}</div>}
+          {items.length === 0 && <div className="empty span-all">{t('ဟင်း မတွေ့ပါ')}</div>}
         </div>
       </div>
 
@@ -550,7 +550,7 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
       <button className="btn" disabled={busy} onClick={submit}>{t('ငွေရှင်းမည်')} · {money(total)}</button>
     </>}>
       {offline && (
-        <div className="offline-note" style={{ marginTop: 0 }}>
+        <div className="offline-note mt-0">
           <Icon name="wifi" size={15} />
           {t('အော့ဖ်လိုင်း ငွေရှင်း — ချိတ်ဆက်ချိန် အလိုအလျောက် sync ဖြစ်မည်')}
         </div>
@@ -573,7 +573,7 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
 
       {usable.length > 0 && (
         <div>
-          <div className="section-title" style={{ marginBottom: 8 }}><Icon name="tag" size={15} /> {t('ပရိုမိုးရှင်း')}</div>
+          <div className="section-title mb-8"><Icon name="tag" size={15} /> {t('ပရိုမိုးရှင်း')}</div>
           <div className="pay-promos">
             {usable.map(p => (
               <button key={p.id} className={`promo-chip ${promotionId === p.id ? 'on' : ''}`} onClick={() => applyPromo(p)}>
@@ -601,7 +601,7 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
               onChange={e => setRow(i, { amount: e.target.value })} placeholder={t('ပမာဏ')} />
             <button type="button" className="link-btn" onClick={() => fillRow(i)}>{t('ကျန်ကို ဖြည့်')}</button>
             {rows.length > 1 && (
-              <button type="button" className="icon-btn" onClick={() => removeRow(i)} aria-label={t('ဖျက်')}>
+              <button type="button" className="icon-btn act-delete" onClick={() => removeRow(i)} aria-label={t('ဖျက်')}>
                 <Icon name="trash" size={15} />
               </button>
             )}

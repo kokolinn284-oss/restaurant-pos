@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, money } from '../api.js';
 import { useI18n } from '../i18n.jsx';
-import { Icon, Modal, Field, Empty } from '../components/ui.jsx';
+import { Icon, Modal, Field, Empty, SearchBox } from '../components/ui.jsx';
 
 const TIER_KEY = { normal: 'ပုံမှန်', silver: 'ငွေရောင်', gold: 'ရွှေရောင်' };
 
@@ -69,11 +69,14 @@ export default function Members({ data, reload, showToast }) {
       {tab === 'members' && (
         <>
           <div className="toolbar">
-            <div className="search">
-              <Icon name="search" size={18} />
-              <input placeholder={t('အမည် / ဖုန်း ရှာရန်…')} value={q} onChange={e => setQ(e.target.value)} />
-            </div>
-            <button className="btn" onClick={() => setAddOpen(true)}><Icon name="plus" size={16} /> {t('အဖွဲ့ဝင်')}</button>
+            <SearchBox
+              value={q}
+              onChange={setQ}
+              placeholder={t('အမည် / ဖုန်း ရှာရန်…')}
+            />
+            <button className="btn" onClick={() => setAddOpen(true)}>
+              <Icon name="plus" size={16} /> <span className="hide-mobile">{t('အဖွဲ့ဝင်')}</span>
+            </button>
           </div>
 
           {list.length === 0 ? <Empty text={t('အဖွဲ့ဝင် မတွေ့ပါ')} /> : (
@@ -103,7 +106,7 @@ export default function Members({ data, reload, showToast }) {
               const remain = c.amount - c.paid;
               return (
                 <button className="list-row" key={c.id} onClick={() => setSettle({ ...c, pay: remain })}>
-                  <div className="avatar" style={{ background: 'var(--rose-soft)', color: 'var(--rose)' }}>{c.customer_name?.slice(0, 1)}</div>
+                  <div className="avatar rose">{c.customer_name?.slice(0, 1)}</div>
                   <div className="grow">
                     <strong>{c.customer_name}</strong>
                     <small className="muted">

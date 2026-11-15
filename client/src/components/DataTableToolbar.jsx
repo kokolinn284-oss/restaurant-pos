@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useI18n } from '../i18n.jsx';
-import { Icon, Modal } from './ui.jsx';
+import { Icon, Modal, SearchBox } from './ui.jsx';
 import { downloadCsv, parseCsv } from '../csv.js';
 
 export function DataTableToolbar({
@@ -40,30 +40,15 @@ export function DataTableToolbar({
       <div className="data-toolbar">
         {/* Search & Advanced Search Toggle */}
         <div className="toolbar-search-group">
-          <div className="search-box">
-            <Icon name="search" size={16} />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={t('အမြန် ရှာဖွေပါ...')}
-              aria-label={t('အမြန် ရှာဖွေပါ')}
-            />
-            {search && (
-              <button
-                type="button"
-                className="clear-btn"
-                onClick={() => setSearch('')}
-                aria-label={t('ရှင်းလင်း')}
-              >
-                <Icon name="close" size={14} />
-              </button>
-            )}
-          </div>
+          <SearchBox
+            value={search}
+            onChange={setSearch}
+            placeholder={t('အမြန် ရှာဖွေပါ...')}
+          />
 
           <button
             type="button"
-            className={`btn ghost icon-text ${showAdvanced || activeFilterCount > 0 ? 'active-filter' : ''}`}
+            className={`btn ghost icon-text toolbar-filter-btn ${showAdvanced || activeFilterCount > 0 ? 'active-filter' : ''}`}
             onClick={() => setShowAdvanced(!showAdvanced)}
             title={t('အသေးစိတ်ရှာဖွေမှု')}
           >
@@ -73,6 +58,7 @@ export function DataTableToolbar({
           </button>
         </div>
 
+        <div className="toolbar-options-group">
         {/* Category Dropdown Filter */}
         {categoryFilter && (
           <div className="toolbar-category-group">
@@ -166,7 +152,7 @@ export function DataTableToolbar({
               title={t('Excel သို့ ထုတ်ယူမည်')}
             >
               <Icon name="download" size={15} />
-              <span className="hide-mobile">Excel</span>
+              <span className="hide-toolbar-wide">Excel</span>
             </button>
           )}
 
@@ -178,11 +164,12 @@ export function DataTableToolbar({
               title={t('Excel မှ တင်သွင်းမည်')}
             >
               <Icon name="upload" size={15} />
-              <span className="hide-mobile">{t('တင်သွင်း')}</span>
+              <span className="hide-toolbar-wide">{t('တင်သွင်း')}</span>
             </button>
           )}
 
           {primaryAction}
+        </div>
         </div>
       </div>
 
@@ -527,9 +514,9 @@ function ExcelImportModal({ onClose, onImport, sampleTemplate }) {
         </button>
       </>}
     >
-      <div className="stack" style={{ gap: 14 }}>
+      <div className="stack gap-14">
         <div className="row between wrap gap">
-          <p className="muted small" style={{ margin: 0 }}>
+          <p className="muted small m-0">
             {t('CSV ဖိုင် (Excel မှ သိမ်းဆည်းထားသော CSV UTF-8) ကို ရွေးချယ်ပါ')}
           </p>
           {sampleTemplate && (
@@ -544,7 +531,7 @@ function ExcelImportModal({ onClose, onImport, sampleTemplate }) {
             ref={fileRef}
             type="file"
             accept=".csv,text/csv"
-            style={{ display: 'none' }}
+            className="is-hidden"
             onChange={handleFile}
           />
           <div className="upload-icon"><Icon name="file" size={32} /></div>
@@ -556,10 +543,10 @@ function ExcelImportModal({ onClose, onImport, sampleTemplate }) {
 
         {parsedRows.length > 0 && (
           <div className="import-preview-section">
-            <div className="row between" style={{ marginBottom: 8 }}>
+            <div className="row between mb-8">
               <strong>{t('တင်သွင်းမည့် အချက်အလက်များ')} ({parsedRows.length} {t('ခု')})</strong>
             </div>
-            <div className="table-wrap" style={{ maxHeight: 220, overflowY: 'auto' }}>
+            <div className="table-wrap scroll-sm">
               <table className="table compact">
                 <thead>
                   <tr>

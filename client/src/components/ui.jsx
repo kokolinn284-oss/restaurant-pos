@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { getTheme, toggleTheme } from '../theme.js';
 import { useI18n } from '../i18n.jsx';
 
@@ -63,9 +63,9 @@ const paths = {
   volumeMute: 'M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6'
 };
 
-export function Icon({ name, size = 20, strokeWidth = 1.8 }) {
+export function Icon({ name, size = 20, strokeWidth = 1.8, className = '', style }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className} style={style}
       stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d={paths[name] || paths.menu} />
     </svg>
@@ -149,18 +149,27 @@ export function Seg({ value, onChange, options }) {
   );
 }
 
-export function Modal({ title, onClose, children, footer, wide }) {
+export function ModalFrame({ onClose, className = '', backdropClassName = '', children }) {
   return (
-    <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
-      <div className={`modal ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true">
-        <div className="modal-head">
-          <h3>{title}</h3>
-          <button className="icon-btn" onClick={onClose} aria-label="close"><Icon name="close" /></button>
-        </div>
-        <div className="modal-body">{children}</div>
-        {footer && <div className="modal-foot">{footer}</div>}
+    <div className={`overlay ${backdropClassName}`.trim()}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
+      <div className={`modal modal-frame ${className}`.trim()} role="dialog" aria-modal="true">
+        {children}
       </div>
     </div>
+  );
+}
+
+export function Modal({ title, onClose, children, footer, wide }) {
+  return (
+    <ModalFrame onClose={onClose} className={wide ? 'wide' : ''}>
+      <div className="modal-head">
+        <h3>{title}</h3>
+        <button className="icon-btn" onClick={onClose} aria-label="close"><Icon name="close" /></button>
+      </div>
+      <div className="modal-body">{children}</div>
+      {footer && <div className="modal-foot">{footer}</div>}
+    </ModalFrame>
   );
 }
 
@@ -182,5 +191,93 @@ export function Switch({ on, onClick, label }) {
   return (
     <button type="button" className={`switch ${on ? 'on' : ''}`} onClick={onClick}
       role="switch" aria-checked={!!on} aria-label={label}><i /></button>
+  );
+}
+
+export function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia(query).matches : false
+  );
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const onChange = (e) => setMatches(e.matches);
+    setMatches(mql.matches);
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, [query]);
+  return matches;
+}
+
+export function SearchBox({ value, onChange, placeholder, onSubmit, className = '' }) {
+  const narrow = useMediaQuery('(max-width: 720px)');
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef(null);
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    if (!narrow) setOpen(false);
+  }, [narrow]);
+
+  useEffect(() => {
+    if (narrow && open) {
+      const id = requestAnimationFrame(() => inputRef.current?.focus());
+      return () => cancelAnimationFrame(id);
+    }
+    return undefined;
+  }, [narrow, open]);
+
+  useEffect(() => {
+    if (!narrow || !open) return undefined;
+    const onOutside = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onOutside);
+    document.addEventListener('touchstart', onOutside);
+    return () => {
+      document.removeEventListener('mousedown', onOutside);
+      document.removeEventListener('touchstart', onOutside);
+    };
+  }, [narrow, open]);
+
+  if (narrow && !open) {
+    return (
+      <button
+        type="button"
+        className={`search-toggle ${value ? 'has-value' : ''}`}
+        onClick={() => setOpen(true)}
+        aria-label={placeholder}
+        title={placeholder}
+      >
+        <Icon name="search" size={18} />
+      </button>
+    );
+  }
+
+  return (
+    <div ref={rootRef} className={`search-box ${narrow ? 'expanded' : ''} ${className}`.trim()}>
+      <Icon name="search" size={16} />
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onSubmit?.();
+          if (e.key === 'Escape' && narrow) setOpen(false);
+        }}
+      />
+      {value && (
+        <button
+          type="button"
+          className="clear-btn"
+          onClick={() => onChange('')}
+          aria-label="clear"
+        >
+          <Icon name="close" size={14} />
+        </button>
+      )}
+    </div>
   );
 }

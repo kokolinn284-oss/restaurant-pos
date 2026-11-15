@@ -471,7 +471,7 @@ function SyncPanel({ drafts, online, syncing, onSync, onClose, onOpen, onRemove 
         {syncing ? t('Sync လုပ်နေသည်…') : `${t('Sync လုပ်မည်')}${paidCount ? ` (${paidCount})` : ''}`}
       </button>
     </>}>
-      <p className="hint" style={{ marginTop: 0 }}>
+      <p className="hint mt-0">
         {t('အော့ဖ်လိုင်းမှာ ရောင်းထားသော order များကို ဤနေရာတွင် စောင့်ကြည့်နိုင်သည်။ ငွေရှင်းပြီး order များ ချိတ်ဆက်မှု ရချိန် အလိုအလျောက် sync ဖြစ်ပါမည်။')}
       </p>
       {!online && (
@@ -484,7 +484,7 @@ function SyncPanel({ drafts, online, syncing, onSync, onClose, onOpen, onRemove 
         <div className="list sync-list">
           {drafts.map(d => (
             <div className={`list-row static sync-row ${d.status}`} key={d.key}>
-              <span className="quick-ico" style={{ width: 38, height: 38, flexBasis: 38, borderRadius: 11 }}>
+              <span className="quick-ico sm">
                 <Icon name={d.type === 'delivery' ? 'phone' : d.type === 'takeaway' ? 'cart' : 'table'} size={17} />
               </span>
               <div className="grow">

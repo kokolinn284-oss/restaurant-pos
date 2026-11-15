@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { getFoodImage } from '../foodPresets.js';
-import { Icon, ThemeToggle, LangToggle } from '../components/ui.jsx';
+import { Icon, ThemeToggle, LangToggle, ModalFrame } from '../components/ui.jsx';
 import { useI18n } from '../i18n.jsx';
 
 const QUICK_NOTES = [
@@ -289,7 +289,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
     return (
       <div className="catalog-loading-screen">
         <div className="spinner" />
-        <div style={{ marginTop: 12, fontWeight: 600 }}>မီနူး ကတ်တလောက် ရယူနေပါသည်…</div>
+        <div className="mt-12 semibold">မီနူး ကတ်တလောက် ရယူနေပါသည်…</div>
       </div>
     );
   }
@@ -526,8 +526,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
 
       {/* Dish Detail & Customization Modal */}
       {detailItem && (
-        <div className="modal-backdrop" onClick={() => setDetailItem(null)}>
-          <div className="modal-panel catalog-dish-modal" onClick={e => e.stopPropagation()}>
+        <ModalFrame className="catalog-dish-modal" onClose={() => setDetailItem(null)}>
             <div className="cdm-header">
               <div className="cdm-img-hero">
                 <img
@@ -619,14 +618,12 @@ export default function CustomerCatalog({ onBackToPos = null }) {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </ModalFrame>
       )}
 
       {/* Customer Tray Drawer / Checkout Modal */}
       {trayOpen && (
-        <div className="modal-backdrop" onClick={() => setTrayOpen(false)}>
-          <div className="modal-panel customer-tray-drawer" onClick={e => e.stopPropagation()}>
+        <ModalFrame className="customer-tray-drawer" onClose={() => setTrayOpen(false)}>
             <div className="modal-head">
               <div className="tray-title-group">
                 <h3>🛒 {isEn ? 'Your Tray' : 'ဗန်းထဲက စာရင်း'}</h3>
@@ -800,14 +797,12 @@ export default function CustomerCatalog({ onBackToPos = null }) {
                 </button>
               </div>
             )}
-          </div>
-        </div>
+        </ModalFrame>
       )}
 
       {/* Table & Dining Mode Picker Modal (Rendered after Tray to overlay cleanly) */}
       {tableModalOpen && (
-        <div className="modal-backdrop table-modal-layer" onClick={() => setTableModalOpen(false)}>
-          <div className="modal-panel table-picker-modal" onClick={e => e.stopPropagation()}>
+        <ModalFrame className="table-picker-modal" backdropClassName="table-modal-layer" onClose={() => setTableModalOpen(false)}>
             <div className="modal-head">
               <h3>🍽️ {isEn ? 'Choose Dining Mode' : 'စားသုံးမည့်ပုံစံ ရွေးပါ'}</h3>
               <button className="icon-btn" onClick={() => setTableModalOpen(false)}>
@@ -867,7 +862,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
               </div>
             )}
 
-            <div className="modal-actions" style={{ marginTop: 18 }}>
+            <div className="modal-actions mt-18">
               <button
                 className="btn success full"
                 onClick={() => {
@@ -882,8 +877,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
                 အတည်ပြုမည်
               </button>
             </div>
-          </div>
-        </div>
+        </ModalFrame>
       )}
 
       {toast && <div className="catalog-toast">{toast}</div>}

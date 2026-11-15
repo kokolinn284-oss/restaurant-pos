@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, money, today } from '../api.js';
 import { useI18n } from '../i18n.jsx';
-import { Icon, Modal, Field } from '../components/ui.jsx';
+import { Icon, Modal, Field, SearchBox } from '../components/ui.jsx';
 import Receipt from '../components/Receipt.jsx';
 import { downloadCsv } from '../csv.js';
 
@@ -163,7 +163,7 @@ export default function Reports({ data, showToast }) {
         )}
       </section>
 
-      <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))' }}>
+      <div className="stat-grid fluid">
         <div className="stat-card"><span>{t('အရောင်း')}</span><strong>{money(sum?.total || 0)}</strong><small className="muted">{sum?.orderCount || 0} order</small></div>
         <div className="stat-card amber"><span>{t('လျော့ငွေ')}</span><strong>{money(sum?.discount || 0)}</strong><small className="muted">{t('ပေးထားသော လျှော့ငွေ')}</small></div>
         <div className="stat-card indigo"><span>{t('အခွန်')} + {t('ဝန်ဆောင်ခ')}</span><strong>{money((sum?.tax || 0) + (sum?.service || 0))}</strong></div>
@@ -320,22 +320,27 @@ export default function Reports({ data, showToast }) {
               </select>
             </div>
             <div className="toolbar-search">
-              <div className="search">
-                <Icon name="search" size={18} />
-                <input placeholder={t('Order နံပါတ် / စားပွဲ ရှာရန်…')} value={hq}
-                  onChange={e => setHq(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') loadHistory(); }} />
-                {hq && <button className="link-btn" onClick={() => setHq('')} aria-label={t('ဖျက်')}><Icon name="close" size={15} /></button>}
-              </div>
-              <button className="btn" onClick={loadHistory}>{t('ရှာမည်')}</button>
-              <button className="btn ghost" onClick={exportHistory} disabled={!history.length}>CSV</button>
+              <SearchBox
+                value={hq}
+                onChange={setHq}
+                onSubmit={loadHistory}
+                placeholder={t('Order နံပါတ် / စားပွဲ ရှာရန်…')}
+              />
+              <button className="btn search-submit" onClick={loadHistory} aria-label={t('ရှာမည်')} title={t('ရှာမည်')}>
+                <Icon name="search" size={15} />
+                <span className="hide-mobile">{t('ရှာမည်')}</span>
+              </button>
+              <button className="btn ghost" onClick={exportHistory} disabled={!history.length} aria-label="CSV" title="CSV">
+                <Icon name="download" size={15} />
+                <span className="hide-mobile">CSV</span>
+              </button>
             </div>
           </div>
           {history.length === 0 ? <div className="empty">{t('ဒေတာ မရှိပါ')}</div> : (
             <div className="list">
               {history.map(o => (
                 <button className="list-row" key={o.id} onClick={() => openReceipt(o.id)}>
-                  <span className="quick-ico" style={{ width: 38, height: 38, flexBasis: 38, borderRadius: 11 }}>
+                  <span className="quick-ico sm">
                     <Icon name="receipt" size={17} />
                   </span>
                   <div className="grow">

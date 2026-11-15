@@ -79,7 +79,7 @@ export default function Settings({ data, reload, showToast, onLogout }) {
 
   return (
     <div className="stack">
-      <div className="tabs" style={{ flexWrap: 'wrap' }}>
+      <div className="tabs wrap">
         <button className={`tab ${tab === 'shop' ? 'on' : ''}`} onClick={() => setTab('shop')}><Icon name="gear" size={15} /> {t('ဆိုင် အချက်အလက်')}</button>
         <button className={`tab ${tab === 'tables' ? 'on' : ''}`} onClick={() => setTab('tables')}><Icon name="table" size={15} /> {t('စားပွဲများ')}</button>
         <button className={`tab ${tab === 'staff' ? 'on' : ''}`} onClick={() => setTab('staff')}><Icon name="users" size={15} /> {t('ဝန်ထမ်း')}</button>
@@ -104,7 +104,7 @@ export default function Settings({ data, reload, showToast, onLogout }) {
             <button className="btn ghost" onClick={downloadBackup}><Icon name="box" size={16} /> {t('ဒေတာ Backup ရယူ')}</button>
             <button className="btn" onClick={saveSettings}>{t('သိမ်းမည်')}</button>
           </div>
-          <p className="hint" style={{ marginTop: 12 }}>
+          <p className="hint mt-12">
             {t('Backup ဖိုင် (.db) ကို ဖုန်း/ကွန်ပြူတာထဲ သိမ်းထားပါ။ နေ့စဉ် အလိုအလျောက် backup ကို backups ဖိုဒါထဲ သိမ်းပေးထားပါတယ်။')}
           </p>
         </section>
@@ -114,7 +114,7 @@ export default function Settings({ data, reload, showToast, onLogout }) {
         <>
           <div className="toolbar">
             <h3>{t('စားပွဲ စီမံ')}</h3>
-            <button className="btn" onClick={() => setTableEdit({ name: '', zone: 'အပြင်', seats: 4 })}><Icon name="plus" size={16} /> {t('စားပွဲ')}</button>
+            <button className="btn" onClick={() => setTableEdit({ name: '', zone: 'အပြင်', seats: 4 })}><Icon name="plus" size={16} /> <span className="hide-mobile">{t('စားပွဲ')}</span></button>
           </div>
           <div className="table-wrap">
             <table className="table">
@@ -126,8 +126,8 @@ export default function Settings({ data, reload, showToast, onLogout }) {
                     <td>{t(tb.zone)}</td>
                     <td>{tb.seats}</td>
                     <td className="right">
-                      <button className="link-btn" onClick={() => setTableEdit({ ...tb })}>{t('ပြင်')}</button>
-                      <button className="link-btn danger" onClick={() => delTable(tb)}>{t('ဖျက်')}</button>
+                      <button className="link-btn act-edit" onClick={() => setTableEdit({ ...tb })}>{t('ပြင်')}</button>
+                      <button className="link-btn act-delete" onClick={() => delTable(tb)}>{t('ဖျက်')}</button>
                     </td>
                   </tr>
                 ))}
@@ -141,7 +141,7 @@ export default function Settings({ data, reload, showToast, onLogout }) {
         <>
           <div className="toolbar">
             <h3>{t('ဝန်ထမ်း')}</h3>
-            <button className="btn" onClick={() => setStaffEdit({ name: '', pin: '', role: 'cashier', active: 1 })}><Icon name="plus" size={16} /> {t('ဝန်ထမ်း')}</button>
+            <button className="btn" onClick={() => setStaffEdit({ name: '', pin: '', role: 'cashier', active: 1 })}><Icon name="plus" size={16} /> <span className="hide-mobile">{t('ဝန်ထမ်း')}</span></button>
           </div>
           <div className="table-wrap">
             <table className="table">
@@ -153,7 +153,7 @@ export default function Settings({ data, reload, showToast, onLogout }) {
                     <td>{t(ROLES[s.role] || s.role)}</td>
                     <td>••••</td>
                     <td><span className={`badge ${s.active ? 'ok' : 'bad'}`}>{s.active ? t('အလုပ်လုပ်') : t('ပိတ်ထားသည်')}</span></td>
-                    <td className="right"><button className="link-btn" onClick={() => setStaffEdit({ ...s })}>{t('ပြင်')}</button></td>
+                    <td className="right"><button className="link-btn act-edit" onClick={() => setStaffEdit({ ...s })}>{t('ပြင်')}</button></td>
                   </tr>
                 ))}
               </tbody>
