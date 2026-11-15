@@ -1,0 +1,465 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { api, money } from '../api.js';
+import { useI18n } from '../i18n.jsx';
+import { Icon, Modal, Field } from '../components/ui.jsx';
+import Receipt from '../components/Receipt.jsx';
+
+const TINTS = ['#0e9f6e', '#f59e0b', '#5b5bd6', '#0d94d2', '#ef4444', '#8b5cf6'];
+
+export default function Order({ orderId, data, reload, showToast, onBack, openOrder }) {
+  const { t } = useI18n();
+  const [order, setOrder] = useState(null);
+  const [cat, setCat] = useState('all');
+  const [q, setQ] = useState('');
+  const [cartOpen, setCartOpen] = useState(false);
+  const [editItem, setEditItem] = useState(null);
+  const [payOpen, setPayOpen] = useState(false);
+  const [receipt, setReceipt] = useState(null);
+  const [splitMode, setSplitMode] = useState(false);
+  const [selected, setSelected] = useState([]);
+
+  const loadOrder = async () => {
+    try { setOrder(await api(`/orders/${orderId}`)); }
+    catch (e) { showToast(e.message); onBack(); }
+  };
+
+  useEffect(() => { loadOrder(); }, [orderId]);
+  useEffect(() => { setSplitMode(false); setSelected([]); }, [orderId]);
+  useEffect(() => {
+    const timer = setInterval(loadOrder, 12000);
+    return () => clearInterval(timer);
+  }, [orderId]);
+
+  const settings = data.settings;
+  const categories = data.categories;
+  const items = data.items.filter(i => i.available && (cat === 'all' || i.category_id === cat)
+    && (!q || i.name.toLowerCase().includes(q.toLowerCase())));
+
+  const activeItems = order?.items?.filter(i => i.status !== 'cancelled') || [];
+  const itemAmount = (it) => {
+    const modSum = (it.modifiers || []).reduce((a, m) => a + m.price, 0);
+    return Math.round((it.price + modSum) * it.qty);
+  };
+  const subtotal = activeItems.reduce((s, it) => s + itemAmount(it), 0);
+  const selectedTotal = activeItems.filter(it => selected.includes(it.id)).reduce((s, it) => s + itemAmount(it), 0);
+
+  const addItem = async (item) => {
+    if (!order || order.status !== 'open') return;
+    try {
+      await api(`/orders/${orderId}/items`, { method: 'POST', body: JSON.stringify({ itemId: item.id, qty: 1 }) });
+      await loadOrder();
+      showToast(`${item.name} ${t('ထည့်ပြီး')}`);
+    } catch (e) { showToast(e.message); }
+  };
+
+  const changeQty = async (it, delta) => {
+    const qty = it.qty + delta;
+    try {
+      if (qty <= 0) await api(`/order-items/${it.id}`, { method: 'DELETE' });
+      else await api(`/order-items/${it.id}`, { method: 'PATCH', body: JSON.stringify({ qty }) });
+      await loadOrder();
+    } catch (e) { showToast(e.message); }
+  };
+
+  const saveItem = async () => {
+    if (!editItem) return;
+    try {
+      await api(`/order-items/${editItem.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ qty: Number(editItem.qty) || 1, note: editItem.note || '' })
+      });
+      setEditItem(null);
+      await loadOrder();
+    } catch (e) { showToast(e.message); }
+  };
+
+  const removeItem = async () => {
+    if (!editItem) return;
+    try {
+      await api(`/order-items/${editItem.id}`, { method: 'DELETE' });
+      setEditItem(null);
+      await loadOrder();
+    } catch (e) { showToast(e.message); }
+  };
+
+  const sendKitchen = async () => {
+    try {
+      await api(`/orders/${orderId}/send-kitchen`, { method: 'POST' });
+      await loadOrder();
+      showToast(t('မီးဖိုချောင်သို့ ပို့ပြီးပါပြီ'));
+    } catch (e) { showToast(e.message); }
+  };
+
+  const voidOrder = async () => {
+    if (!window.confirm(t('ဒီ order ကို ပယ်ဖျက်မှာ သေချာပါသလား?'))) return;
+    try {
+      await api(`/orders/${orderId}/void`, { method: 'POST' });
+      await reload();
+      onBack();
+    } catch (e) { showToast(e.message); }
+  };
+
+  const toggleSel = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+
+  const splitBill = async () => {
+    if (!selected.length) return showToast(t('ခွဲမည့် ဟင်း ရွေးပါ'));
+    if (selected.length === activeItems.length) return showToast(t('အနည်းဆုံး တစ်ခု မူလဘီလ်တွင် ချန်ထားပါ'));
+    try {
+      const r = await api(`/orders/${orderId}/split`, { method: 'POST', body: JSON.stringify({ itemIds: selected }) });
+      setSplitMode(false);
+      setSelected([]);
+      await reload();
+      showToast(`${t('ဘီလ်ခွဲပြီး')} · #${r.order_no}`);
+      openOrder?.(r.id);
+    } catch (e) { showToast(e.message); }
+  };
+
+  const paid = async (result) => {
+    const o = await api(`/orders/${orderId}`);
+    setOrder(o);
+    setReceipt(o);
+    setPayOpen(false);
+    setCartOpen(false);
+    await reload();
+    showToast(`${t('ငွေရှင်းပြီးပါပြီ')} · ${money(result.total)}`);
+  };
+
+  const printDirect = async () => {
+    if (!receipt) return;
+    try {
+      await api(`/print/receipt/${receipt.id}`, { method: 'POST' });
+      showToast(t('ပရင့် ပို့ပြီးပါပြီ'));
+    } catch (e) {
+      showToast(`${t('ပရင့် မအောင်မြင်ပါ')} — ${e.message}`);
+    }
+  };
+
+  const closeReceipt = () => {
+    setReceipt(null);
+    if (order?.status !== 'open') onBack();
+  };
+
+  const catTint = (categoryId) => {
+    const idx = categories.findIndex(c => c.id === categoryId);
+    return TINTS[(idx < 0 ? 0 : idx) % TINTS.length];
+  };
+
+  if (!order) return <div className="loading">{t('Order ရယူနေသည်…')}</div>;
+
+  const isOpen = order.status === 'open';
+  const title = order.type === 'dine_in'
+    ? (data.tables.find(tb => tb.id === order.table_id)?.name || t('စားပွဲ'))
+    : order.type === 'delivery' ? t('ပို့ဆောင်') : t('ပါဆယ်');
+
+  return (
+    <div className="order-screen">
+      <div className="menu-pane">
+        <div className="menu-tools">
+          <div className="search">
+            <Icon name="search" size={18} />
+            <input placeholder={t('ဟင်း ရှာရန်…')} value={q} onChange={e => setQ(e.target.value)} />
+            {q && <button className="link-btn" onClick={() => setQ('')}>{t('ဖျက်')}</button>}
+          </div>
+          <div className="chips">
+            <button className={`chip ${cat === 'all' ? 'on' : ''}`} onClick={() => setCat('all')}>{t('အားလုံး')}</button>
+            {categories.map(c => (
+              <button key={c.id} className={`chip ${cat === c.id ? 'on' : ''}`} onClick={() => setCat(c.id)}>{c.name}</button>
+            ))}
+          </div>
+        </div>
+
+        <div className="item-grid">
+          {items.map(i => (
+            <button key={i.id} className={`item-card ${i.is_alcohol ? 'alc' : ''}`}
+              style={{ '--tint': i.is_alcohol ? '#ef4444' : catTint(i.category_id) }}
+              onClick={() => addItem(i)} disabled={!isOpen}>
+              <span className="item-name">{i.is_alcohol && <span className="alc-flag">18+</span>}{i.name}</span>
+              <span className="item-price">{money(i.price)}</span>
+              <span className="item-add"><Icon name="plus" size={14} /></span>
+            </button>
+          ))}
+          {items.length === 0 && <div className="empty" style={{ gridColumn: '1 / -1' }}>{t('ဟင်း မတွေ့ပါ')}</div>}
+        </div>
+      </div>
+
+      <aside className={`cart-pane ${cartOpen ? 'open' : ''}`}>
+        <div className="cart-head">
+          <div>
+            <h3>{title}</h3>
+            <div className="order-tag">#{order.order_no} · {t('ထိုင်ခုံ')} {order.guests} · {activeItems.length} {t('မျိုး')}</div>
+          </div>
+          <button className="icon-btn mobile-only" onClick={() => setCartOpen(false)} aria-label={t('ပိတ်')}><Icon name="close" /></button>
+        </div>
+
+        <div className="cart-items">
+          {activeItems.length === 0 && <div className="empty" style={{ margin: 14 }}>{t('ပစ္စည်း ရွေးချယ်ပါ')}</div>}
+          {activeItems.map(it => (
+            <div key={it.id} className="cart-item">
+              {splitMode && (
+                <input type="checkbox" className="split-check" checked={selected.includes(it.id)}
+                  onChange={() => toggleSel(it.id)} aria-label={t('ခွဲရန် ရွေး')} />
+              )}
+              <div className="ci-main">
+                <div className="ci-name">{it.name}
+                  {it.is_alcohol && <span className="tag alc">18+</span>}
+                  {it.status === 'cooking' && <span className="tag">{it.station === 'bar' ? t('ဘား') : t('မီးဖိုချောင်')}</span>}
+                  {it.status === 'served' && <span className="tag ok">{t('ကျွေးပြီး')}</span>}
+                </div>
+                <div className="ci-sub">
+                  <span>{money(it.price)}</span>
+                  <button className="qty-btn" onClick={() => changeQty(it, -0.5)}>−</button>
+                  <span className="qty">{it.qty}</span>
+                  <button className="qty-btn" onClick={() => changeQty(it, 0.5)}>+</button>
+                  <button className="link-btn" onClick={() => setEditItem({ ...it })}>{t('မှတ်ချက်')}</button>
+                </div>
+                {it.note && <div className="ci-note">{it.note}</div>}
+              </div>
+              <div className="ci-amount">{money(itemAmount(it))}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="cart-foot">
+          <div className="cart-total-line">
+            <span>{splitMode ? t('ခွဲမည့် ပစ္စည်း') : t('စုစုပေါင်း')}</span>
+            <strong>{money(splitMode ? selectedTotal : subtotal)}</strong>
+          </div>
+          {splitMode ? (
+            <div className="cart-actions">
+              <button className="btn ghost" onClick={() => { setSplitMode(false); setSelected([]); }}>{t('မလုပ်တော့')}</button>
+              <button className="btn" disabled={!selected.length} onClick={splitBill}>{t('ဘီလ်ခွဲမည်')}</button>
+            </div>
+          ) : (
+            <>
+              <div className="cart-actions">
+                <button className="btn ghost" onClick={sendKitchen} disabled={!isOpen || !activeItems.length}>
+                  <Icon name="fire" size={17} /> {t('မီးဖိုချောင်ပို့')}
+                </button>
+                <button className="btn" onClick={() => setPayOpen(true)} disabled={!isOpen || !activeItems.length}>
+                  <Icon name="cash" size={17} /> {t('ငွေရှင်း')}
+                </button>
+              </div>
+              <div className="cart-actions">
+                <button className="btn danger sm" onClick={voidOrder} disabled={!isOpen}>{t('ပယ်ဖျက်')}</button>
+                <button className="btn ghost sm" onClick={() => setSplitMode(true)} disabled={!isOpen || activeItems.length < 2}>{t('ဘီလ်ခွဲ')}</button>
+                <button className="btn ghost sm" onClick={onBack}>{t('နောက်သို့')}</button>
+              </div>
+            </>
+          )}
+        </div>
+      </aside>
+
+      <button className="cart-fab mobile-only" onClick={() => setCartOpen(true)}>
+        <span>{t('ဟင်းလျာ')} · {activeItems.length} {t('မျိုး')}</span>
+        <strong>{money(subtotal)}</strong>
+      </button>
+
+      {editItem && (
+        <Modal title={t('ပစ္စည်း ပြင်ဆင်')} onClose={() => setEditItem(null)}
+          footer={<>
+            <button className="btn ghost" onClick={() => setEditItem(null)}>{t('မလုပ်တော့')}</button>
+            <button className="btn" onClick={saveItem}>{t('သိမ်းမည်')}</button>
+          </>}>
+          <Field label={t('အရေအတွက်')}>
+            <input type="number" step="0.5" min="0" value={editItem.qty}
+              onChange={e => setEditItem({ ...editItem, qty: e.target.value })} />
+          </Field>
+          <Field label={t('မှတ်ချက်')} hint={t('ဥပမာ — အစပ်လျှော့၊ ဆီမပါ')}>
+            <input value={editItem.note || ''} onChange={e => setEditItem({ ...editItem, note: e.target.value })} />
+          </Field>
+          <button className="btn danger sm" onClick={removeItem}><Icon name="trash" size={16} /> {t('ဖျက်မည်')}</button>
+        </Modal>
+      )}
+
+      {payOpen && (
+        <PayModal order={order} subtotal={subtotal} settings={settings} customers={data.customers}
+          promotions={data.promotions || []} onClose={() => setPayOpen(false)} onPaid={paid} />
+      )}
+
+      {receipt && (
+        <Modal title={t('ဘောက်ချာ')} wide onClose={closeReceipt}
+          footer={<>
+            <button className="btn ghost" onClick={closeReceipt}>{t('ပိတ်')}</button>
+            <button className="btn ghost" onClick={() => window.print()}><Icon name="print" size={16} /> {t('ပရင့်ထုတ်')}</button>
+            {settings.printer_mode !== 'browser' && (
+              <button className="btn" onClick={printDirect}><Icon name="print" size={16} /> {t('တိုက်ရိုက် ပရင့်')}</button>
+            )}
+          </>}>
+          <Receipt order={receipt} settings={settings} tableName={title} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function PayModal({ order, subtotal, settings, customers = [], promotions = [], onClose, onPaid }) {
+  const { t } = useI18n();
+  const [discount, setDiscount] = useState(0);
+  const [promotionId, setPromotionId] = useState('');
+  const [method, setMethod] = useState('cash');
+  const [tendered, setTendered] = useState('');
+  const [ref, setRef] = useState('');
+  const [customerId, setCustomerId] = useState(order.customer_id || '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const taxRate = Number(settings.tax_rate || 0);
+  const serviceRate = Number(settings.service_rate || 0);
+  const disc = Math.min(Math.max(0, Number(discount) || 0), subtotal);
+  const taxable = subtotal - disc;
+  const tax = Math.round(taxable * taxRate / 100);
+  const service = Math.round(taxable * serviceRate / 100);
+  const total = taxable + tax + service;
+  const change = method === 'cash' ? Math.max(0, (Number(tendered) || 0) - total) : 0;
+
+  const nowHM = new Date().toTimeString().slice(0, 5);
+  const usable = useMemo(() => promotions.filter(p => {
+    if (!p.active) return false;
+    if (subtotal < Number(p.min_subtotal || 0)) return false;
+    if (p.start_time && nowHM < p.start_time) return false;
+    if (p.end_time && nowHM > p.end_time) return false;
+    return true;
+  }), [promotions, subtotal, nowHM]);
+
+  const promoValue = (p) => p.type === 'percent'
+    ? Math.round(subtotal * Number(p.value || 0) / 100)
+    : Number(p.value || 0);
+
+  const applyPromo = (p) => {
+    if (promotionId === p.id) {
+      setPromotionId('');
+      setDiscount(0);
+      return;
+    }
+    setPromotionId(p.id);
+    setDiscount(Math.min(subtotal, promoValue(p)));
+  };
+
+  const changeDiscount = (v) => {
+    setDiscount(v);
+    setPromotionId('');
+  };
+
+  const submit = async () => {
+    if (method === 'cash' && Number(tendered || 0) < total) {
+      setErr(t('လက်ခံငွေ မလုံလောက်ပါ'));
+      return;
+    }
+    if (method === 'credit' && !customerId) {
+      setErr(t('အကြွေးအတွက် အဖွဲ့ဝင် ရွေးပါ'));
+      return;
+    }
+    setBusy(true);
+    setErr('');
+    try {
+      const result = await api(`/orders/${order.id}/pay`, {
+        method: 'POST',
+        body: JSON.stringify({
+          discount: disc,
+          promotionId: promotionId || null,
+          customerId: customerId || null,
+          payments: [{ method, amount: total, ref }]
+        })
+      });
+      await onPaid(result);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const selectedPromo = usable.find(p => p.id === promotionId);
+  const methods = [
+    ['cash', 'လက်ငင်း', 'cash'],
+    ['kbzpay', 'KBZPay', 'phone'],
+    ['wavepay', 'WavePay', 'phone'],
+    ['bank', 'ဘဏ်/ကတ်', 'receipt2'],
+    ['credit', 'အကြွေး', 'clock']
+  ];
+
+  return (
+    <Modal title={t('ငွေရှင်း')} onClose={onClose} footer={<>
+      <button className="btn ghost" onClick={onClose}>{t('မလုပ်တော့')}</button>
+      <button className="btn" disabled={busy} onClick={submit}>{t('ငွေရှင်းမည်')} · {money(total)}</button>
+    </>}>
+      <div className="pay-summary">
+        <div className="row between"><span>{t('စုစုပေါင်း')}</span><span>{money(subtotal)}</span></div>
+        <div className="row between">
+          <span>{t('လျော့ငွေ')}</span>
+          <div className="inline">
+            <input type="number" min="0" value={discount} onChange={e => changeDiscount(e.target.value)} style={{ width: 110 }} />
+            {[5, 10].map(p => (
+              <button key={p} className={`chip ${promotionId ? '' : ''}`} onClick={() => changeDiscount(Math.round(subtotal * p / 100))}>{p}%</button>
+            ))}
+          </div>
+        </div>
+        {tax > 0 && <div className="row between"><span>{t('အခွန်')} ({taxRate}%)</span><span>{money(tax)}</span></div>}
+        {service > 0 && <div className="row between"><span>{t('ဝန်ဆောင်ခ')} ({serviceRate}%)</span><span>{money(service)}</span></div>}
+        <div className="row between total"><span>{t('ကျသင့်ငွေ')}</span><strong>{money(total)}</strong></div>
+      </div>
+
+      {usable.length > 0 && (
+        <div>
+          <div className="section-title" style={{ marginBottom: 8 }}><Icon name="tag" size={15} /> {t('ပရိုမိုးရှင်း')}</div>
+          <div className="pay-promos">
+            {usable.map(p => (
+              <button key={p.id} className={`promo-chip ${promotionId === p.id ? 'on' : ''}`} onClick={() => applyPromo(p)}>
+                <Icon name="spark" size={14} />
+                <span>{p.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {selectedPromo && (
+        <div className="row between small muted">
+          <span>{selectedPromo.name}</span>
+          <span>-{money(promoValue(selectedPromo))}</span>
+        </div>
+      )}
+
+      <div className="methods">
+        {methods.map(([k, label, icon]) => (
+          <button key={k} className={`method ${method === k ? 'on' : ''}`} onClick={() => setMethod(k)}>
+            <Icon name={icon} size={16} /> {t(label)}
+          </button>
+        ))}
+      </div>
+
+      {method === 'cash' ? (
+        <div className="cash-box">
+          <Field label={t('လက်ခံငွေ')}>
+            <input type="number" inputMode="numeric" value={tendered} onChange={e => setTendered(e.target.value)} placeholder={String(total)} />
+          </Field>
+          <div className="chips">
+            {[total, Math.ceil(total / 1000) * 1000, Math.ceil(total / 5000) * 5000, Math.ceil(total / 10000) * 10000]
+              .filter((v, i, arr) => v > 0 && arr.indexOf(v) === i)
+              .map(v => (
+                <button key={v} className="chip" onClick={() => setTendered(String(v))}>{money(v)}</button>
+              ))}
+          </div>
+          <div className="change"><span>{t('ပြန်အမ်းငွေ')}</span><strong>{money(change)}</strong></div>
+        </div>
+      ) : (
+        <>
+          {method === 'credit' && (
+            <Field label={t('အကြွေး အဖွဲ့ဝင်')}>
+              <select value={customerId} onChange={e => setCustomerId(e.target.value)}>
+                <option value="">{t('— ရွေးချယ်ပါ —')}</option>
+                {customers.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}{c.phone ? ` · ${c.phone}` : ''}</option>
+                ))}
+              </select>
+            </Field>
+          )}
+          <Field label={t('ရည်ညွှန်း နံပါတ် (optional)')}>
+            <input value={ref} onChange={e => setRef(e.target.value)} placeholder="Transaction ID" />
+          </Field>
+        </>
+      )}
+
+      {err && <div className="error-text">{err}</div>}
+    </Modal>
+  );
+}
