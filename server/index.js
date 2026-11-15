@@ -151,6 +151,7 @@ app.get('/api/bootstrap', (req, res) => {
     creditOutstanding: db.prepare('SELECT COALESCE(SUM(amount - paid), 0) AS amount FROM credits WHERE settled_at IS NULL').get().amount,
     shift: currentShift(),
     promotions: db.prepare('SELECT * FROM promotions ORDER BY active DESC, id').all(),
+    lowStockCount: db.prepare('SELECT COUNT(*) AS c FROM inventory_items WHERE qty <= reorder_level').get().c,
     kitchenCount: db.prepare("SELECT COUNT(*) AS c FROM order_items i LEFT JOIN menu_items m ON m.id = i.item_id WHERE i.status = 'cooking' AND COALESCE(m.station, 'kitchen') = 'kitchen'").get().c,
     barCount: db.prepare("SELECT COUNT(*) AS c FROM order_items i LEFT JOIN menu_items m ON m.id = i.item_id WHERE i.status = 'cooking' AND m.station = 'bar'").get().c,
     me: req.staff
@@ -712,6 +713,13 @@ app.get('/api/reports/summary', (req, res) => {
   const expenses = db.prepare("SELECT COALESCE(SUM(amount),0) AS amount FROM expenses WHERE date(created_at)=?").get(date).amount;
   const openCount = db.prepare("SELECT COUNT(*) AS c FROM orders WHERE status='open'").get().c;
   const creditOutstanding = db.prepare("SELECT COALESCE(SUM(amount - paid),0) AS amount FROM credits WHERE settled_at IS NULL").get().amount;
+  const cost = ids.length ? db.prepare(`
+    SELECT COALESCE(SUM(COALESCE(m.cost, 0) * oi.qty), 0) AS cost
+    FROM order_items oi LEFT JOIN menu_items m ON m.id = oi.item_id
+    WHERE oi.order_id IN (${ids.map(() => '?').join(',')}) AND oi.status != 'cancelled'
+  `).get(...ids).cost : 0;
+  const netSales = orders.reduce((s, o) => s + o.subtotal - o.discount, 0);
+  const profit = netSales - cost;
   const alcohol = ids.length ? db.prepare(`
     SELECT COALESCE(SUM(oi.price * oi.qty), 0) AS amount, COALESCE(SUM(oi.qty), 0) AS qty
     FROM order_items oi JOIN menu_items m ON m.id = oi.item_id
@@ -719,6 +727,7 @@ app.get('/api/reports/summary', (req, res) => {
   `).get(...ids) : { amount: 0, qty: 0 };
   res.json({
     date, orderCount: orders.length, total, discount, tax, service, expenses, creditOutstanding,
+    netSales, cost, profit, margin: netSales ? Math.round(profit / netSales * 100) : 0,
     avg: orders.length ? Math.round(total / orders.length) : 0,
     byMethod, topItems, byHour, openCount,
     alcoholSales: alcohol.amount, alcoholQty: alcohol.qty
@@ -741,13 +750,25 @@ app.get('/api/reports/items', (req, res) => {
   const to = req.query.to || from;
   const alcoholOnly = req.query.alcohol === '1';
   res.json(db.prepare(`
-    SELECT oi.name, SUM(oi.qty) AS qty, SUM(oi.price*oi.qty) AS amount
+    SELECT oi.name, SUM(oi.qty) AS qty, SUM(oi.price*oi.qty) AS amount,
+           COALESCE(SUM(COALESCE(m.cost, 0) * oi.qty), 0) AS cost
     FROM order_items oi
     JOIN orders o ON o.id = oi.order_id
-    ${alcoholOnly ? 'JOIN menu_items m ON m.id = oi.item_id' : ''}
+    LEFT JOIN menu_items m ON m.id = oi.item_id
     WHERE o.status='paid' AND date(o.closed_at) BETWEEN ? AND ? AND oi.status != 'cancelled'
       ${alcoholOnly ? 'AND m.is_alcohol = 1' : ''}
     GROUP BY oi.name ORDER BY amount DESC
+  `).all(from, to));
+});
+
+app.get('/api/reports/staff', (req, res) => {
+  const from = req.query.from || ymdLocal();
+  const to = req.query.to || from;
+  res.json(db.prepare(`
+    SELECT COALESCE(s.name, '—') AS name, COUNT(o.id) AS orders, SUM(o.total) AS total
+    FROM orders o LEFT JOIN staff s ON s.id = o.staff_id
+    WHERE o.status='paid' AND date(o.closed_at) BETWEEN ? AND ?
+    GROUP BY o.staff_id ORDER BY total DESC
   `).all(from, to));
 });
 

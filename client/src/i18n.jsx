@@ -229,6 +229,11 @@ const EN = {
 
   // reports
   'အရောင်း အစီရင်ခံစာ': 'Sales report',
+  'အမြတ်': 'Profit',
+  'အမြတ်နှုန်း': 'margin',
+  'ဟင်းခ ကုန်ကျစရိတ်': 'Food cost',
+  'ဝန်ထမ်း အရောင်း': 'Staff sales',
+  'CSV ရယူပြီးပါပြီ': 'CSV downloaded',
   'ဆိုင် ဖွင့်/ပိတ် · ငွေရှင်း': 'Shift & cash',
   'ဆိုင်ပိတ်': 'Close shift',
   'ဆိုင်ဖွင့်': 'Open shift',

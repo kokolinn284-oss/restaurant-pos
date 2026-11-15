@@ -152,6 +152,7 @@ export default function App() {
     if (!data) return 0;
     if (key === 'tables') return data.openOrders?.length || 0;
     if (key === 'kitchen') return (data.kitchenCount || 0) + (data.barCount || 0);
+    if (key === 'inventory') return data.lowStockCount || 0;
     return 0;
   };
 

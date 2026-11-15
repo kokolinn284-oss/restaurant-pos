@@ -6,6 +6,17 @@ import Receipt from '../components/Receipt.jsx';
 
 const METHOD_KEY = { cash: 'လက်ငင်း', kbzpay: 'KBZPay', wavepay: 'WavePay', bank: 'ဘဏ်/ကတ်', credit: 'အကြွေး' };
 
+function downloadCsv(filename, header, rows) {
+  const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = [header.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))];
+  const url = URL.createObjectURL(new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export default function Reports({ data, showToast }) {
   const { t } = useI18n();
   const [tab, setTab] = useState('report');
@@ -23,21 +34,24 @@ export default function Reports({ data, showToast }) {
   const [histStatus, setHistStatus] = useState('paid');
   const [hq, setHq] = useState('');
   const [history, setHistory] = useState([]);
+  const [staffSales, setStaffSales] = useState([]);
   const [receipt, setReceipt] = useState(null);
   const settings = data?.settings || {};
 
   const load = async (d) => {
     try {
-      const [s, it, sh, alc] = await Promise.all([
+      const [s, it, sh, alc, st] = await Promise.all([
         api(`/reports/summary?date=${d}`),
         api(`/reports/items?from=${d}&to=${d}`),
         api('/shifts/current'),
-        api(`/reports/items?from=${d}&to=${d}&alcohol=1`)
+        api(`/reports/items?from=${d}&to=${d}&alcohol=1`),
+        api(`/reports/staff?from=${d}&to=${d}`)
       ]);
       setSum(s);
       setItems(it);
       setAlcohol(alc);
       setShift(sh);
+      setStaffSales(st);
       const from = new Date(d);
       from.setDate(from.getDate() - 6);
       const f = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}-${String(from.getDate()).padStart(2, '0')}`;
@@ -67,6 +81,39 @@ export default function Reports({ data, showToast }) {
       await api(`/print/receipt/${receipt.id}`, { method: 'POST' });
       showToast(t('ပရင့် ပို့ပြီးပါပြီ'));
     } catch (e) { showToast(`${t('ပရင့် မအောင်မြင်ပါ')} — ${e.message}`); }
+  };
+
+  const exportItems = () => {
+    downloadCsv(`dishes-${date}.csv`,
+      [t('ဟင်း'), t('အရေအတွက်'), t('အရောင်း'), t('ကုန်ကျစရိတ်'), t('အမြတ်')],
+      items.map(it => [it.name, it.qty, it.amount, it.cost || 0, it.amount - (it.cost || 0)]));
+    showToast(t('CSV ရယူပြီးပါပြီ'));
+  };
+
+  const exportStaff = () => {
+    downloadCsv(`staff-${date}.csv`,
+      [t('ဝန်ထမ်း'), 'Order', t('အရောင်း')],
+      staffSales.map(s => [s.name, s.orders, s.total]));
+    showToast(t('CSV ရယူပြီးပါပြီ'));
+  };
+
+  const exportDaily = () => {
+    downloadCsv(`daily-${date}.csv`,
+      [t('ရက်စွဲ'), 'Order', t('စုစုပေါင်း'), t('လျော့ငွေ'), t('အရောင်း')],
+      daily.map(d => [d.date, d.orders, d.subtotal, d.discount, d.total]));
+    showToast(t('CSV ရယူပြီးပါပြီ'));
+  };
+
+  const exportHistory = () => {
+    downloadCsv(`orders-${from}_${to}.csv`,
+      ['Order', t('ရက်စွဲ'), t('စားပွဲ'), t('အမျိုးအစား'), t('ပစ္စည်း'), t('စုစုပေါင်း'), t('လျော့ငွေ'), t('ကျသင့်ငွေ'), t('အခြေအနေ')],
+      history.map(o => [
+        o.order_no, o.closed_at || '', o.table_name || '',
+        o.type === 'dine_in' ? t('စားပွဲ') : o.type === 'delivery' ? t('ပို့ဆောင်') : t('ပါဆယ်'),
+        o.item_count, o.subtotal, o.discount, o.total,
+        o.status === 'void' ? t('ပယ်ဖျက်ပြီး') : t('ရှင်းပြီး')
+      ]));
+    showToast(t('CSV ရယူပြီးပါပြီ'));
   };
 
   const submitShift = async () => {
@@ -133,6 +180,8 @@ export default function Reports({ data, showToast }) {
         <div className="stat-card rose"><span>{t('အသုံးစရိတ်')}</span><strong>{money(sum?.expenses || 0)}</strong></div>
         <div className="stat-card indigo"><span>{t('အရက်/ဘီယာ အရောင်း')}</span><strong>{money(sum?.alcoholSales || 0)}</strong><small className="muted">{sum?.alcoholQty || 0} {t('ခု')}</small></div>
         <div className="stat-card"><span>{t('အကြွေး ကျန်ငွေ')}</span><strong>{money(sum?.creditOutstanding || 0)}</strong></div>
+        <div className="stat-card rose"><span>{t('ဟင်းခ ကုန်ကျစရိတ်')}</span><strong>{money(sum?.cost || 0)}</strong><small className="muted">{t('ယနေ့')}</small></div>
+        <div className="stat-card"><span>{t('အမြတ်')}</span><strong>{money(sum?.profit || 0)}</strong><small className="muted">{sum?.margin || 0}% {t('အမြတ်နှုန်း')}</small></div>
       </div>
 
       <div className="two-col">
@@ -151,13 +200,19 @@ export default function Reports({ data, showToast }) {
         </section>
 
         <section className="panel">
-          <div className="panel-head"><h3>{t('ဟင်း အရောင်း')}</h3></div>
+          <div className="panel-head">
+            <h3>{t('ဟင်း အရောင်း')}</h3>
+            <button className="btn ghost sm" onClick={exportItems} disabled={!items.length}>CSV</button>
+          </div>
           {items.length === 0 ? <div className="empty">{t('ဒေတာ မရှိပါ')}</div> : (
             <div className="list">
               {items.slice(0, 12).map((it, i) => (
                 <div className="list-row static" key={it.name}>
                   <div className={`rank ${i === 0 ? 'gold' : ''}`}>{i + 1}</div>
-                  <div className="grow"><strong>{it.name}</strong><small className="muted">{it.qty} {t('ပွဲ')}</small></div>
+                  <div className="grow">
+                    <strong>{it.name}</strong>
+                    <small className="muted">{it.qty} {t('ပွဲ')} · {t('အမြတ်')} {money(it.amount - (it.cost || 0))}</small>
+                  </div>
                   <span className="amount">{money(it.amount)}</span>
                 </div>
               ))}
@@ -165,6 +220,29 @@ export default function Reports({ data, showToast }) {
           )}
         </section>
       </div>
+
+      <section className="panel">
+        <div className="panel-head">
+          <h3><Icon name="users" size={16} /> {t('ဝန်ထမ်း အရောင်း')}</h3>
+          <button className="btn ghost sm" onClick={exportStaff} disabled={!staffSales.length}>CSV</button>
+        </div>
+        {staffSales.length === 0 ? <div className="empty">{t('ဒေတာ မရှိပါ')}</div> : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>{t('ဝန်ထမ်း')}</th><th>Order</th><th>{t('အရောင်း')}</th></tr></thead>
+              <tbody>
+                {staffSales.map(s => (
+                  <tr key={s.name}>
+                    <td>{s.name}</td>
+                    <td>{s.orders}</td>
+                    <td><strong>{money(s.total)}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <section className="panel">
         <div className="panel-head">
@@ -185,7 +263,10 @@ export default function Reports({ data, showToast }) {
       </section>
 
       <section className="panel">
-        <div className="panel-head"><h3>{t('နောက်ဆုံး ၇ ရက်')}</h3></div>
+        <div className="panel-head">
+          <h3>{t('နောက်ဆုံး ၇ ရက်')}</h3>
+          <button className="btn ghost sm" onClick={exportDaily} disabled={!daily.length}>CSV</button>
+        </div>
         {daily.length === 0 ? <div className="empty">{t('ဒေတာ မရှိပါ')}</div> : (
           <div className="table-wrap">
             <table className="table">
@@ -253,6 +334,7 @@ export default function Reports({ data, showToast }) {
                   onKeyDown={e => { if (e.key === 'Enter') loadHistory(); }} />
               </div>
               <button className="btn" onClick={loadHistory}>{t('ရှာမည်')}</button>
+              <button className="btn ghost" onClick={exportHistory} disabled={!history.length}>CSV</button>
             </div>
           </div>
           {history.length === 0 ? <div className="empty">{t('ဒေတာ မရှိပါ')}</div> : (

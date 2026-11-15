@@ -48,6 +48,16 @@ export default function Dashboard({ data, go }) {
           <strong>{money((sum?.discount || 0) + (sum?.tax || 0))}</strong>
           <small className="muted">{t('ယနေ့')}</small>
         </div>
+        <div className="stat-card">
+          <span><Icon name="chart" size={14} /> {t('အမြတ်')}</span>
+          <strong>{money(sum?.profit || 0)}</strong>
+          <small className="muted">{t('ကုန်ကျစရိတ်')} {money(sum?.cost || 0)}</small>
+        </div>
+        <div className="stat-card rose" style={{ cursor: 'pointer' }} onClick={() => go('inventory')}>
+          <span><Icon name="box" size={14} /> {t('လက်ကျန်နည်း')}</span>
+          <strong>{data.lowStockCount || 0}</strong>
+          <small className="muted">{t('ပြတ်တော့မည်')}</small>
+        </div>
       </div>
 
       <div className="two-col">

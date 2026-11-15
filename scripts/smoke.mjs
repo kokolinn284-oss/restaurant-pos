@@ -64,6 +64,7 @@ try {
   const boot = await req('/api/bootstrap', { token: owner });
   assert(boot.status === 200, 'owner bootstrap failed');
   assert(boot.data.tables.length > 0 && boot.data.items.length > 0, 'seed data missing');
+  assert(typeof boot.data.lowStockCount === 'number', 'low stock count missing');
 
   const dbPath = path.join(dataDir, 'pos.db');
   const ro = new DatabaseSync(dbPath, { readOnly: true });
@@ -113,6 +114,12 @@ try {
 
   const summary = await req(`/api/reports/summary?date=${date}`, { token: owner });
   assert(summary.data.orderCount === 1, 'report order count wrong');
+  assert(typeof summary.data.cost === 'number' && summary.data.cost >= 0, 'report cost missing');
+  assert(summary.data.profit === summary.data.netSales - summary.data.cost, 'report profit mismatch');
+  const staffReport = await req(`/api/reports/staff?from=${date}&to=${date}`, { token: owner });
+  assert(staffReport.status === 200 && staffReport.data.length === 1 && staffReport.data[0].orders === 1, 'staff report failed');
+  const dishReport = await req(`/api/reports/items?from=${date}&to=${date}`, { token: owner });
+  assert(dishReport.status === 200 && typeof dishReport.data[0].cost === 'number', 'dish cost missing');
 
   const backup = await fetch(`${base}/api/backup`, { headers: { Authorization: `Bearer ${owner}` } });
   assert(backup.status === 200, 'owner backup failed');
@@ -135,7 +142,7 @@ try {
   for (let i = 0; i < 10; i++) await req('/api/auth/login', { method: 'POST', body: { pin: '0000' } });
   assert((await req('/api/auth/login', { method: 'POST', body: { pin: '0000' } })).status === 429, 'login rate limit not enforced');
 
-  console.log('SMOKE OK — auth, roles, order flow, split payment, history, backup');
+  console.log('SMOKE OK — auth, roles, order flow, split payment, history, backup, profit/staff reports');
 } catch (e) {
   console.error('SMOKE FAILED:', e.message);
   if (serverLog) console.error(serverLog);
