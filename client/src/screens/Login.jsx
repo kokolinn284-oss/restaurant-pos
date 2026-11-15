@@ -18,8 +18,8 @@ export default function Login({ onLogin }) {
     if (!value || busy) return;
     setBusy(true);
     try {
-      const { staff } = await api('/auth/login', { method: 'POST', body: JSON.stringify({ pin: value }) });
-      onLogin(staff);
+      const { staff, token } = await api('/auth/login', { method: 'POST', body: JSON.stringify({ pin: value }) });
+      onLogin({ staff, token });
     } catch (e) {
       setErr(e.message);
       setPin('');

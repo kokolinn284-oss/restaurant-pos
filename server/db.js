@@ -1,8 +1,11 @@
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+const DATA_DIR = process.env.POS_DATA_DIR
+  ? path.resolve(process.env.POS_DATA_DIR)
+  : path.resolve(process.cwd(), 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 export const DB_PATH = path.join(DATA_DIR, 'pos.db');
 
@@ -22,6 +25,13 @@ CREATE TABLE IF NOT EXISTS staff (
   pin TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'cashier',
   active INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY,
+  staff_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  expires_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS categories (
@@ -198,7 +208,29 @@ CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id);
 CREATE INDEX IF NOT EXISTS idx_payments_paid ON payments(paid_at);
 CREATE INDEX IF NOT EXISTS idx_reservations_at ON reservations(reserved_at);
 CREATE INDEX IF NOT EXISTS idx_credits_customer ON credits(customer_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_staff ON sessions(staff_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_item ON order_items(item_id);
+CREATE INDEX IF NOT EXISTS idx_orders_table ON orders(table_id);
+CREATE INDEX IF NOT EXISTS idx_stock_moves_item ON stock_moves(item_id);
 `);
+
+const PIN_PREFIX = 'scrypt$';
+
+export function hashPin(pin) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(String(pin), salt, 32).toString('hex');
+  return `${PIN_PREFIX}${salt}$${hash}`;
+}
+
+export function verifyPin(pin, stored) {
+  if (!stored) return false;
+  if (!String(stored).startsWith(PIN_PREFIX)) return String(stored) === String(pin);
+  const [, salt, hash] = String(stored).split('$');
+  if (!salt || !hash) return false;
+  const candidate = crypto.scryptSync(String(pin), salt, 32);
+  const known = Buffer.from(hash, 'hex');
+  return candidate.length === known.length && crypto.timingSafeEqual(candidate, known);
+}
 
 function ensureColumn(table, col, def) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -239,9 +271,9 @@ export function seed() {
 
   if (count('staff') === 0) {
     const ins = db.prepare('INSERT INTO staff (name, pin, role) VALUES (?, ?, ?)');
-    ins.run('ဆိုင်ရှင်', '1234', 'owner');
-    ins.run('ကောင်တာ', '1111', 'cashier');
-    ins.run('စားပွဲထိုး', '2222', 'waiter');
+    ins.run('ဆိုင်ရှင်', hashPin('1234'), 'owner');
+    ins.run('ကောင်တာ', hashPin('1111'), 'cashier');
+    ins.run('စားပွဲထိုး', hashPin('2222'), 'waiter');
   }
 
   if (count('categories') === 0) {
@@ -399,6 +431,17 @@ function seedAlcoholMenu() {
   }
 }
 seedAlcoholMenu();
+
+/* Hash legacy plaintext PINs and drop expired sessions. */
+function migrateStaffPins() {
+  const rows = db.prepare('SELECT id, pin FROM staff').all();
+  const upd = db.prepare('UPDATE staff SET pin = ? WHERE id = ?');
+  for (const r of rows) {
+    if (!String(r.pin).startsWith(PIN_PREFIX)) upd.run(hashPin(r.pin), r.id);
+  }
+}
+migrateStaffPins();
+db.prepare("DELETE FROM sessions WHERE expires_at <= datetime('now','localtime')").run();
 
 
 export function getSettings() {

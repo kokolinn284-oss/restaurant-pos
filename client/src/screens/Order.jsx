@@ -84,9 +84,10 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
 
   const sendKitchen = async () => {
     try {
-      await api(`/orders/${orderId}/send-kitchen`, { method: 'POST' });
+      const r = await api(`/orders/${orderId}/send-kitchen`, { method: 'POST' });
       await loadOrder();
-      showToast(t('မီးဖိုချောင်သို့ ပို့ပြီးပါပြီ'));
+      if (r.warnings?.length) showToast(r.warnings.join(' · '));
+      else showToast(t('မီးဖိုချောင်သို့ ပို့ပြီးပါပြီ'));
     } catch (e) { showToast(e.message); }
   };
 
@@ -294,23 +295,28 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
 
 function PayModal({ order, subtotal, settings, customers = [], promotions = [], onClose, onPaid }) {
   const { t } = useI18n();
+  const taxRate = Number(settings.tax_rate || 0);
+  const serviceRate = Number(settings.service_rate || 0);
+  const initialTotal = subtotal + Math.round(subtotal * taxRate / 100) + Math.round(subtotal * serviceRate / 100);
   const [discount, setDiscount] = useState(0);
   const [promotionId, setPromotionId] = useState('');
-  const [method, setMethod] = useState('cash');
-  const [tendered, setTendered] = useState('');
-  const [ref, setRef] = useState('');
+  const [rows, setRows] = useState([{ method: 'cash', amount: String(initialTotal) }]);
   const [customerId, setCustomerId] = useState(order.customer_id || '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
-  const taxRate = Number(settings.tax_rate || 0);
-  const serviceRate = Number(settings.service_rate || 0);
+  const amountOf = (r) => Math.round(Number(r.amount) || 0);
   const disc = Math.min(Math.max(0, Number(discount) || 0), subtotal);
   const taxable = subtotal - disc;
   const tax = Math.round(taxable * taxRate / 100);
   const service = Math.round(taxable * serviceRate / 100);
   const total = taxable + tax + service;
-  const change = method === 'cash' ? Math.max(0, (Number(tendered) || 0) - total) : 0;
+  const paidSum = rows.reduce((s, r) => s + amountOf(r), 0);
+  const remaining = Math.max(0, total - paidSum);
+  const hasCash = rows.some(r => r.method === 'cash' && amountOf(r) > 0);
+  const change = hasCash ? Math.max(0, paidSum - total) : 0;
+  const creditAmount = rows.filter(r => r.method === 'credit').reduce((s, r) => s + amountOf(r), 0);
+  const hasCredit = creditAmount > 0;
 
   const nowHM = new Date().toTimeString().slice(0, 5);
   const usable = useMemo(() => promotions.filter(p => {
@@ -325,30 +331,64 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
     ? Math.round(subtotal * Number(p.value || 0) / 100)
     : Number(p.value || 0);
 
+  const syncSingleCashRow = (newDiscount) => {
+    if (rows.length !== 1 || rows[0].method !== 'cash') return;
+    const d = Math.min(Math.max(0, Number(newDiscount) || 0), subtotal);
+    const net = subtotal - d;
+    const next = net + Math.round(net * taxRate / 100) + Math.round(net * serviceRate / 100);
+    setRows([{ ...rows[0], amount: String(next) }]);
+  };
+
   const applyPromo = (p) => {
     if (promotionId === p.id) {
       setPromotionId('');
       setDiscount(0);
+      syncSingleCashRow(0);
       return;
     }
+    const value = Math.min(subtotal, promoValue(p));
     setPromotionId(p.id);
-    setDiscount(Math.min(subtotal, promoValue(p)));
+    setDiscount(value);
+    syncSingleCashRow(value);
   };
 
   const changeDiscount = (v) => {
     setDiscount(v);
     setPromotionId('');
+    syncSingleCashRow(v);
   };
 
+  const setRow = (i, patch) => setRows(rs => rs.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+  const addRow = () => setRows(rs => [...rs, {
+    method: 'cash',
+    amount: String(Math.max(0, total - rs.reduce((s, r) => s + amountOf(r), 0)))
+  }]);
+  const removeRow = (i) => setRows(rs => rs.length > 1 ? rs.filter((_, idx) => idx !== i) : rs);
+  const fillRow = (i) => setRows(rs => {
+    const others = rs.reduce((s, r, idx) => idx === i ? s : s + amountOf(r), 0);
+    return rs.map((r, idx) => idx === i ? { ...r, amount: String(Math.max(0, total - others)) } : r);
+  });
+
   const submit = async () => {
-    if (method === 'cash' && Number(tendered || 0) < total) {
+    if (!paidSum) {
+      setErr(t('ငွေပမာဏ ထည့်ပါ'));
+      return;
+    }
+    if (paidSum < total) {
       setErr(t('လက်ခံငွေ မလုံလောက်ပါ'));
       return;
     }
-    if (method === 'credit' && !customerId) {
+    if (hasCredit && !customerId) {
       setErr(t('အကြွေးအတွက် အဖွဲ့ဝင် ရွေးပါ'));
       return;
     }
+    if (creditAmount > total) {
+      setErr(t('အကြွေးပမာဏ မမှန်ပါ'));
+      return;
+    }
+    const payments = rows
+      .map(r => ({ method: r.method, amount: amountOf(r) }))
+      .filter(p => p.amount > 0);
     setBusy(true);
     setErr('');
     try {
@@ -358,7 +398,7 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
           discount: disc,
           promotionId: promotionId || null,
           customerId: customerId || null,
-          payments: [{ method, amount: total, ref }]
+          payments
         })
       });
       await onPaid(result);
@@ -419,44 +459,51 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
         </div>
       )}
 
-      <div className="methods">
-        {methods.map(([k, label, icon]) => (
-          <button key={k} className={`method ${method === k ? 'on' : ''}`} onClick={() => setMethod(k)}>
-            <Icon name={icon} size={16} /> {t(label)}
-          </button>
+      <div className="pay-rows">
+        {rows.map((r, i) => (
+          <div className="pay-row" key={i}>
+            <select value={r.method} onChange={e => setRow(i, { method: e.target.value })}>
+              {methods.map(([k, label]) => <option key={k} value={k}>{t(label)}</option>)}
+            </select>
+            <input type="number" min="0" inputMode="numeric" value={r.amount}
+              onChange={e => setRow(i, { amount: e.target.value })} placeholder={t('ပမာဏ')} />
+            <button type="button" className="link-btn" onClick={() => fillRow(i)}>{t('ကျန်ကို ဖြည့်')}</button>
+            {rows.length > 1 && (
+              <button type="button" className="icon-btn" onClick={() => removeRow(i)} aria-label={t('ဖျက်')}>
+                <Icon name="trash" size={15} />
+              </button>
+            )}
+          </div>
         ))}
       </div>
+      <button type="button" className="btn ghost sm" onClick={addRow}>
+        <Icon name="plus" size={15} /> {t('ငွေပေးချေမှု ထပ်ထည့်')}
+      </button>
 
-      {method === 'cash' ? (
-        <div className="cash-box">
-          <Field label={t('လက်ခံငွေ')}>
-            <input type="number" inputMode="numeric" value={tendered} onChange={e => setTendered(e.target.value)} placeholder={String(total)} />
-          </Field>
-          <div className="chips">
-            {[total, Math.ceil(total / 1000) * 1000, Math.ceil(total / 5000) * 5000, Math.ceil(total / 10000) * 10000]
-              .filter((v, i, arr) => v > 0 && arr.indexOf(v) === i)
-              .map(v => (
-                <button key={v} className="chip" onClick={() => setTendered(String(v))}>{money(v)}</button>
-              ))}
-          </div>
-          <div className="change"><span>{t('ပြန်အမ်းငွေ')}</span><strong>{money(change)}</strong></div>
+      {rows.length === 1 && rows[0].method === 'cash' && (
+        <div className="chips">
+          {[total, Math.ceil(total / 1000) * 1000, Math.ceil(total / 5000) * 5000, Math.ceil(total / 10000) * 10000]
+            .filter((v, i, arr) => v > 0 && arr.indexOf(v) === i)
+            .map(v => (
+              <button key={v} className="chip" onClick={() => setRow(0, { amount: String(v) })}>{money(v)}</button>
+            ))}
         </div>
-      ) : (
-        <>
-          {method === 'credit' && (
-            <Field label={t('အကြွေး အဖွဲ့ဝင်')}>
-              <select value={customerId} onChange={e => setCustomerId(e.target.value)}>
-                <option value="">{t('— ရွေးချယ်ပါ —')}</option>
-                {customers.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}{c.phone ? ` · ${c.phone}` : ''}</option>
-                ))}
-              </select>
-            </Field>
-          )}
-          <Field label={t('ရည်ညွှန်း နံပါတ် (optional)')}>
-            <input value={ref} onChange={e => setRef(e.target.value)} placeholder="Transaction ID" />
-          </Field>
-        </>
+      )}
+
+      <div className="pay-tally">
+        <div className="row between"><span>{t('ကျန်ငွေ')}</span><strong>{money(remaining)}</strong></div>
+        {change > 0 && <div className="row between"><span>{t('ပြန်အမ်းငွေ')}</span><strong>{money(change)}</strong></div>}
+      </div>
+
+      {hasCredit && (
+        <Field label={t('အကြွေး အဖွဲ့ဝင်')}>
+          <select value={customerId} onChange={e => setCustomerId(e.target.value)}>
+            <option value="">{t('— ရွေးချယ်ပါ —')}</option>
+            {customers.map(c => (
+              <option key={c.id} value={c.id}>{c.name}{c.phone ? ` · ${c.phone}` : ''}</option>
+            ))}
+          </select>
+        </Field>
       )}
 
       {err && <div className="error-text">{err}</div>}

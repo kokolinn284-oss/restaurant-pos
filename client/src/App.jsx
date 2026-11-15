@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { api, setStaff } from './api.js';
+import { api, setAuth, setUnauthorizedHandler } from './api.js';
 import { useI18n } from './i18n.jsx';
 import Login from './screens/Login.jsx';
 import Tables from './screens/Tables.jsx';
@@ -25,14 +25,20 @@ const NAV = [
 ];
 
 const ROLE_KEY = { owner: 'ပိုင်ရှင်', cashier: 'ကောင်တာ', waiter: 'စားပွဲထိုး' };
+const ROLE_NAV = {
+  owner: NAV.map(n => n.key),
+  cashier: NAV.map(n => n.key).filter(k => k !== 'settings'),
+  waiter: ['tables', 'kitchen']
+};
 const MY_DAYS = ['တနင်္ဂနွေ', 'တနင်္လာ', 'အင်္ဂါ', 'ဗုဒ္ဓဟူး', 'ကြာသပတေး', 'သောကြာ', 'စနေ'];
 const MY_MONTHS = ['ဇန်', 'ဖေ', 'မတ်', 'ဧ', 'မေ', 'ဇွန်', 'ဇူ', 'ဩ', 'စက်', 'အောက်', 'နို', 'ဒီ'];
 
 export default function App() {
   const { t, isEn } = useI18n();
-  const [staff, setStaffState] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('pos_staff')); } catch { return null; }
+  const [session, setSession] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('pos_auth')); } catch { return null; }
   });
+  const staff = session?.staff || null;
   const [data, setData] = useState(null);
   const [view, setView] = useState('tables');
   const [orderId, setOrderId] = useState(null);
@@ -51,15 +57,17 @@ export default function App() {
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem('pos_staff');
-    setStaffState(null);
+    api('/auth/logout', { method: 'POST' }).catch(() => {});
+    localStorage.removeItem('pos_auth');
+    setSession(null);
     setData(null);
     setOrderId(null);
     setNavOpen(false);
     setUserOpen(false);
   }, []);
 
-  useEffect(() => { setStaff(staff); }, [staff]);
+  useEffect(() => { setAuth(session); }, [session]);
+  useEffect(() => { setUnauthorizedHandler(logout); }, [logout]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 20000);
@@ -94,7 +102,7 @@ export default function App() {
     const timer = setInterval(tick, 25000);
     let es;
     try {
-      es = new EventSource(`/api/events?staffId=${staff.id}`);
+      es = new EventSource('/api/events');
       es.onmessage = () => tick();
     } catch {}
     return () => { alive = false; clearInterval(timer); if (es) es.close(); };
@@ -102,10 +110,16 @@ export default function App() {
 
   useEffect(() => { if (data) document.title = `${data.settings.shop_name} · POS`; }, [data]);
 
-  const login = (s) => {
-    localStorage.setItem('pos_staff', JSON.stringify(s));
-    setStaffState(s);
+  const login = (sessionData) => {
+    localStorage.setItem('pos_auth', JSON.stringify(sessionData));
+    setSession(sessionData);
   };
+
+  useEffect(() => {
+    if (!staff) return;
+    const allowed = ROLE_NAV[staff.role] || ROLE_NAV.cashier;
+    if (view !== 'order' && !allowed.includes(view)) setView('tables');
+  }, [staff, view]);
 
   if (!staff) return <Login onLogin={login} />;
 
@@ -123,6 +137,7 @@ export default function App() {
   });
 
   const settings = data?.settings || {};
+  const navItems = NAV.filter(n => (ROLE_NAV[staff.role] || ROLE_NAV.cashier).includes(n.key));
   const shopName = isEn ? (settings.shop_name_en || 'Sintawgyi Restaurant') : (settings.shop_name || 'စည်တော်ကြီး စားသောက်ဆိုင်');
   const shopSub = isEn ? (settings.shop_name || 'စည်တော်ကြီး စားသောက်ဆိုင်') : (settings.shop_name_en || 'Sintawgyi Restaurant');
   const pageNav = view === 'order' ? NAV[0] : (NAV.find(n => n.key === view) || NAV[0]);
@@ -152,7 +167,7 @@ export default function App() {
       case 'menu': return <MenuAdmin data={data} reload={reload} showToast={showToast} />;
       case 'inventory': return <Inventory reload={reload} showToast={showToast} />;
       case 'members': return <Members data={data} reload={reload} showToast={showToast} />;
-      case 'reports': return <Reports showToast={showToast} />;
+      case 'reports': return <Reports data={data} showToast={showToast} />;
       case 'settings': return <Settings data={data} reload={reload} showToast={showToast} onLogout={logout} />;
       default:
         return <Tables data={data} openOrder={openOrder} reload={reload} showToast={showToast} staff={staff} />;
@@ -182,7 +197,7 @@ export default function App() {
 
         <div className="nav-cap">{t('စီမံခန့်ခွဲမှု')}</div>
         <nav>
-          {NAV.map(n => (
+          {navItems.map(n => (
             <button key={n.key}
               className={`nav-btn ${view === n.key || (n.key === 'tables' && view === 'order') ? 'active' : ''}`}
               onClick={() => goto(n.key)} title={t(n.label)}>
@@ -275,7 +290,7 @@ export default function App() {
       </div>
 
       <nav className="bottom-nav">
-        {NAV.filter(n => ['tables', 'kitchen', 'menu'].includes(n.key)).map(n => (
+        {navItems.filter(n => ['tables', 'kitchen', 'menu'].includes(n.key)).map(n => (
           <button key={n.key}
             className={`bn-item ${view === n.key || (n.key === 'tables' && view === 'order') ? 'active' : ''}`}
             onClick={() => goto(n.key)}>

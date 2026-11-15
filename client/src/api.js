@@ -1,15 +1,25 @@
-let currentStaff = null;
+let currentAuth = null;
+let onUnauthorized = null;
 
-export function setStaff(staff) {
-  currentStaff = staff;
+export function setAuth(auth) {
+  currentAuth = auth;
+}
+
+export function getToken() {
+  return currentAuth?.token || '';
+}
+
+export function setUnauthorizedHandler(fn) {
+  onUnauthorized = fn;
 }
 
 export async function api(path, opts = {}) {
   const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
-  if (currentStaff) headers['x-staff-id'] = currentStaff.id;
+  if (currentAuth?.token) headers.Authorization = `Bearer ${currentAuth.token}`;
   const res = await fetch('/api' + path, { ...opts, headers });
   let data = {};
   try { data = await res.json(); } catch {}
+  if (res.status === 401 && path !== '/auth/login') onUnauthorized?.(data.error);
   if (!res.ok) {
     const err = new Error(data.error || 'တောင်းဆိုမှု မအောင်မြင်ပါ');
     err.status = res.status;

@@ -12,6 +12,7 @@ function nextHour() {
 export default function Tables({ data, openOrder, reload, showToast }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
+  const [billsFor, setBillsFor] = useState(null);
   const [resOpen, setResOpen] = useState(false);
   const [resForm, setResForm] = useState({ customer_name: '', phone: '', party_size: 2, table_id: '', reserved_at: nextHour(), note: '' });
 
@@ -21,7 +22,14 @@ export default function Tables({ data, openOrder, reload, showToast }) {
 
   const openTable = async (tb) => {
     if (busy) return;
-    if (tb.order_id) return openOrder(tb.order_id);
+    if (tb.order_id) {
+      const bills = data.openOrders.filter(o => o.table_id === tb.id);
+      if (bills.length > 1) {
+        setBillsFor({ table: tb, bills });
+        return;
+      }
+      return openOrder(tb.order_id);
+    }
     setBusy(true);
     try {
       const r = await api('/orders', { method: 'POST', body: JSON.stringify({ type: 'dine_in', tableId: tb.id }) });
@@ -162,7 +170,7 @@ export default function Tables({ data, openOrder, reload, showToast }) {
                 {tb.order_id ? (
                   <div className="tc-order">
                     <span>#{tb.order_no}{tb.bills > 1 ? ` +${tb.bills - 1}` : ''}</span>
-                    <strong>{money(tb.open_total || tb.total)}</strong>
+                    <strong>{money(tb.bills > 1 ? tb.open_total : tb.total)}</strong>
                   </div>
                 ) : (
                   <div className="tc-open"><Icon name="plus" /> {t('Order ဖွင့်ရန်')}</div>
@@ -193,6 +201,28 @@ export default function Tables({ data, openOrder, reload, showToast }) {
           </div>
         )}
       </section>
+
+      {billsFor && (
+        <Modal title={`${billsFor.table.name} — ${t('ဘီလ်များ')}`} onClose={() => setBillsFor(null)}
+          footer={<button className="btn ghost" onClick={() => setBillsFor(null)}>{t('ပိတ်')}</button>}>
+          <p className="hint" style={{ marginTop: 0 }}>{t('ဒီစားပွဲမှာ ဘီလ် နှစ်ခုရှိနေပါတယ် — ဖွင့်မည့် ဘီလ်ကို ရွေးပါ။')}</p>
+          <div className="list">
+            {billsFor.bills.map(o => (
+              <button key={o.id} className="list-row" onClick={() => { setBillsFor(null); openOrder(o.id); }}>
+                <span className="quick-ico" style={{ width: 38, height: 38, flexBasis: 38, borderRadius: 11 }}>
+                  <Icon name="receipt" size={17} />
+                </span>
+                <div className="grow">
+                  <strong>#{o.order_no}</strong>
+                  <small className="muted">{o.item_count} {t('မျိုး')} · {o.opened_at?.slice(11, 16)}</small>
+                </div>
+                <span className="amount">{money(o.total)}</span>
+                <Icon name="arrow" size={16} />
+              </button>
+            ))}
+          </div>
+        </Modal>
+      )}
 
       {resOpen && (
         <Modal title={t('ကြိုတင်မှာယူ အသစ်')} onClose={() => setResOpen(false)} footer={<>

@@ -3,13 +3,18 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import net from 'node:net';
+import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import {
-  db, DB_PATH, getSettings, setSettings, nextOrderNo, orderTotals, orderWithItems, tableStatus
+  db, DB_PATH, getSettings, setSettings, nextOrderNo, orderTotals, orderWithItems, tableStatus,
+  hashPin, verifyPin
 } from './db.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+const ymdLocal = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 app.use(express.json({ limit: '2mb' }));
 
@@ -37,18 +42,87 @@ app.get('/api/shop', (req, res) => {
   res.json({ shop_name: s.shop_name, shop_name_en: s.shop_name_en, address: s.address, phone: s.phone });
 });
 
+const sha256 = (v) => crypto.createHash('sha256').update(String(v)).digest('hex');
+const bearer = (req) => {
+  const raw = req.headers.authorization || '';
+  return raw.startsWith('Bearer ') ? raw.slice(7) : '';
+};
+const SESSION_DAYS = 7;
+
+const loginAttempts = new Map();
+const LOGIN_WINDOW_MS = 10 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 10;
+function loginBlocked(ip) {
+  const rec = loginAttempts.get(ip);
+  if (!rec) return false;
+  if (Date.now() - rec.first > LOGIN_WINDOW_MS) { loginAttempts.delete(ip); return false; }
+  return rec.count >= LOGIN_MAX_ATTEMPTS;
+}
+function noteLoginFailure(ip) {
+  const rec = loginAttempts.get(ip);
+  if (!rec || Date.now() - rec.first > LOGIN_WINDOW_MS) loginAttempts.set(ip, { first: Date.now(), count: 1 });
+  else rec.count += 1;
+}
+
 app.post('/api/auth/login', (req, res) => {
-  const { pin } = req.body || {};
-  const staff = db.prepare('SELECT id, name, role FROM staff WHERE pin = ? AND active = 1').get(String(pin || ''));
-  if (!staff) return res.status(401).json({ error: 'PIN မှားနေပါတယ်' });
-  res.json({ staff });
+  const ip = req.ip || 'unknown';
+  if (loginBlocked(ip)) {
+    return res.status(429).json({ error: 'PIN မှားယွင်းမှု များလာပါတယ် — ခဏနေရင် ပြန်စမ်းပါ' });
+  }
+  const raw = String(req.body?.pin || '');
+  const candidates = db.prepare('SELECT id, name, role, pin FROM staff WHERE active = 1').all();
+  const staff = raw ? candidates.find(s => verifyPin(raw, s.pin)) : null;
+  if (!staff) {
+    noteLoginFailure(ip);
+    return res.status(401).json({ error: 'PIN မှားနေပါတယ်' });
+  }
+  loginAttempts.delete(ip);
+  const token = crypto.randomBytes(24).toString('hex');
+  db.prepare(`INSERT INTO sessions (token_hash, staff_id, expires_at)
+    VALUES (?, ?, datetime('now','localtime','+${SESSION_DAYS} days'))`).run(sha256(token), staff.id);
+  res.json({ staff: { id: staff.id, name: staff.name, role: staff.role }, token });
 });
 
+app.post('/api/auth/logout', (req, res) => {
+  const token = bearer(req);
+  if (token) db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(sha256(token));
+  res.json({ ok: true });
+});
+
+const WAITER_DENY = [
+  ['*', /^\/(shifts|reports|settings|backup|staff|credits|expenses)(\/|$)/],
+  ['POST', /^\/orders\/\d+\/(pay|void)$/],
+  ['POST|PATCH|DELETE', /^\/(items|categories|inventory|promotions|tables)(\/|$)/]
+];
+const CASHIER_DENY = [
+  ['*', /^\/(backup|staff)(\/|$)/],
+  ['POST|PATCH|DELETE', /^\/settings(\/|$)/],
+  ['DELETE', /^\/(items|categories|tables|promotions)(\/|$)/]
+];
+function canAccess(role, method, reqPath) {
+  if (role === 'owner') return true;
+  const rules = role === 'waiter' ? WAITER_DENY : CASHIER_DENY;
+  for (const [methods, re] of rules) {
+    if (!re.test(reqPath)) continue;
+    if (methods === '*' || methods.split('|').includes(method)) return false;
+  }
+  return true;
+}
+
+const PUBLIC_API = new Set(['/health', '/auth/login', '/shop', '/events']);
+
 app.use('/api', (req, res, next) => {
-  if (req.path === '/health' || req.path === '/auth/login' || req.path === '/events') return next();
-  const id = req.headers['x-staff-id'] || req.query.staffId;
-  const staff = id ? db.prepare('SELECT id, name, role FROM staff WHERE id = ? AND active = 1').get(Number(id)) : null;
+  if (PUBLIC_API.has(req.path)) return next();
+  const token = bearer(req);
+  const staff = token ? db.prepare(`
+    SELECT s.id, s.name, s.role FROM sessions ss
+    JOIN staff s ON s.id = ss.staff_id
+    WHERE ss.token_hash = ? AND s.active = 1 AND ss.expires_at > datetime('now','localtime')
+  `).get(sha256(token)) : null;
   if (!staff) return res.status(401).json({ error: 'ပြန်လည် ဝင်ရောက်ပါ' });
+  if (!canAccess(staff.role, req.method, req.path)) {
+    return res.status(403).json({ error: 'ဒီလုပ်ဆောင်ချက်အတွက် ခွင့်ပြုချက် မရှိပါ' });
+  }
   req.staff = staff;
   next();
 });
@@ -202,7 +276,16 @@ app.patch('/api/items/:id', (req, res) => {
 });
 
 app.delete('/api/items/:id', (req, res) => {
-  db.prepare('DELETE FROM menu_items WHERE id = ?').run(Number(req.params.id));
+  const id = Number(req.params.id);
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM recipe_items WHERE menu_item_id = ?').run(id);
+    db.prepare('DELETE FROM menu_items WHERE id = ?').run(id);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    return res.status(500).json({ error: e.message });
+  }
   broadcast('menu');
   res.json({ ok: true });
 });
@@ -327,6 +410,28 @@ app.get('/api/orders', (req, res) => {
   res.json(db.prepare(sql).all(...args));
 });
 
+app.get('/api/orders/history', (req, res) => {
+  const from = req.query.from || ymdLocal();
+  const to = req.query.to || from;
+  const status = req.query.status === 'void' ? 'void' : req.query.status === 'all' ? null : 'paid';
+  const q = String(req.query.q || '').trim();
+  const where = ['date(o.closed_at) BETWEEN ? AND ?'];
+  const args = [from, to];
+  if (status) { where.push('o.status = ?'); args.push(status); }
+  if (q) {
+    where.push('(o.order_no LIKE ? OR t.name LIKE ?)');
+    args.push(`%${q}%`, `%${q}%`);
+  }
+  res.json(db.prepare(`
+    SELECT o.id, o.order_no, o.type, o.status, o.total, o.subtotal, o.discount, o.guests,
+           o.opened_at, o.closed_at, t.name AS table_name,
+           (SELECT COUNT(*) FROM order_items i WHERE i.order_id = o.id AND i.status != 'cancelled') AS item_count
+    FROM orders o LEFT JOIN tables t ON t.id = o.table_id
+    WHERE ${where.join(' AND ')}
+    ORDER BY o.closed_at DESC, o.id DESC LIMIT 200
+  `).all(...args));
+});
+
 app.get('/api/orders/:id', (req, res) => {
   const o = orderWithItems(Number(req.params.id));
   if (!o) return res.status(404).json({ error: 'မတွေ့ပါ' });
@@ -349,8 +454,14 @@ app.post('/api/orders', (req, res) => {
 app.patch('/api/orders/:id', (req, res) => {
   const id = Number(req.params.id);
   const { note, guests, customerId } = req.body;
-  db.prepare('UPDATE orders SET note = COALESCE(?, note), guests = COALESCE(?, guests), customer_id = COALESCE(?, customer_id) WHERE id = ?')
-    .run(note ?? null, guests ?? null, customerId ?? null, id);
+  const hasCustomer = Object.prototype.hasOwnProperty.call(req.body, 'customerId');
+  if (hasCustomer) {
+    db.prepare('UPDATE orders SET note = COALESCE(?, note), guests = COALESCE(?, guests), customer_id = ? WHERE id = ?')
+      .run(note ?? null, guests ?? null, customerId ? Number(customerId) : null, id);
+  } else {
+    db.prepare('UPDATE orders SET note = COALESCE(?, note), guests = COALESCE(?, guests) WHERE id = ?')
+      .run(note ?? null, guests ?? null, id);
+  }
   broadcast('orders', { id });
   res.json({ ok: true });
 });
@@ -449,9 +560,28 @@ app.post('/api/orders/:id/split', (req, res) => {
   }
 });
 
+function recipeShortages(rows) {
+  const need = new Map();
+  for (const it of rows) {
+    if (!it.item_id) continue;
+    for (const l of db.prepare('SELECT * FROM recipe_items WHERE menu_item_id = ?').all(it.item_id)) {
+      need.set(l.inventory_item_id, (need.get(l.inventory_item_id) || 0) + l.qty * it.qty);
+    }
+  }
+  const warnings = [];
+  for (const [invId, qty] of need) {
+    const inv = db.prepare('SELECT name, qty, unit FROM inventory_items WHERE id = ?').get(invId);
+    if (inv && inv.qty - qty < 0) {
+      warnings.push(`${inv.name} လက်ကျန် မလုံလောက်ပါ (${inv.qty} ${inv.unit})`);
+    }
+  }
+  return warnings;
+}
+
 app.post('/api/orders/:id/send-kitchen', (req, res) => {
   const id = Number(req.params.id);
   const rows = db.prepare("SELECT * FROM order_items WHERE order_id = ? AND status = 'new' AND stock_deducted = 0").all(id);
+  const warnings = recipeShortages(rows);
   db.exec('BEGIN');
   try {
     for (const it of rows) {
@@ -467,14 +597,18 @@ app.post('/api/orders/:id/send-kitchen', (req, res) => {
   broadcast('kitchen');
   broadcast('orders', { id });
   broadcast('inventory');
-  res.json({ ok: true });
+  res.json({ ok: true, warnings });
 });
 
 app.post('/api/orders/:id/pay', (req, res) => {
   const id = Number(req.params.id);
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
   if (!order || order.status !== 'open') return res.status(400).json({ error: 'Order မဖွင့်ထားပါ' });
-  const { discount = 0, payments = [], customerId = null, promotionId = null } = req.body;
+  const { discount = 0, customerId = null, promotionId = null } = req.body;
+  const payments = Array.isArray(req.body.payments) ? req.body.payments : [];
+  if (payments.some(p => Math.round(Number(p.amount) || 0) < 0)) {
+    return res.status(400).json({ error: 'ငွေပမာဏ မမှန်ပါ' });
+  }
 
   const settings = getSettings();
   const { subtotal } = orderTotals(id);
@@ -555,7 +689,7 @@ app.get('/api/kitchen', (req, res) => {
 
 /* ---------------- reports ---------------- */
 app.get('/api/reports/summary', (req, res) => {
-  const date = req.query.date || new Date().toISOString().slice(0, 10);
+  const date = req.query.date || ymdLocal();
   const orders = db.prepare("SELECT * FROM orders WHERE status='paid' AND date(closed_at)=?").all(date);
   const ids = orders.map(o => o.id);
   const total = orders.reduce((s, o) => s + o.total, 0);
@@ -592,7 +726,7 @@ app.get('/api/reports/summary', (req, res) => {
 });
 
 app.get('/api/reports/daily', (req, res) => {
-  const from = req.query.from || new Date().toISOString().slice(0, 10);
+  const from = req.query.from || ymdLocal();
   const to = req.query.to || from;
   res.json(db.prepare(`
     SELECT date(closed_at) AS date, COUNT(*) AS orders, SUM(subtotal) AS subtotal,
@@ -603,7 +737,7 @@ app.get('/api/reports/daily', (req, res) => {
 });
 
 app.get('/api/reports/items', (req, res) => {
-  const from = req.query.from || new Date().toISOString().slice(0, 10);
+  const from = req.query.from || ymdLocal();
   const to = req.query.to || from;
   const alcoholOnly = req.query.alcohol === '1';
   res.json(db.prepare(`
@@ -687,7 +821,7 @@ app.get('/api/staff', (req, res) => res.json(db.prepare('SELECT id, name, role, 
 app.post('/api/staff', (req, res) => {
   const { name, pin, role = 'cashier' } = req.body;
   if (!name || !pin) return res.status(400).json({ error: 'အမည်/PIN ထည့်ပါ' });
-  const r = db.prepare('INSERT INTO staff (name, pin, role) VALUES (?, ?, ?)').run(name, String(pin), role);
+  const r = db.prepare('INSERT INTO staff (name, pin, role) VALUES (?, ?, ?)').run(name, hashPin(String(pin)), role);
   res.json({ id: r.lastInsertRowid });
 });
 
@@ -696,7 +830,8 @@ app.patch('/api/staff/:id', (req, res) => {
   if (!cur) return res.status(404).json({ error: 'မတွေ့ပါ' });
   const b = req.body;
   db.prepare('UPDATE staff SET name=?, pin=?, role=?, active=? WHERE id=?')
-    .run(b.name ?? cur.name, b.pin != null ? String(b.pin) : cur.pin, b.role ?? cur.role, (b.active ?? cur.active) ? 1 : 0, cur.id);
+    .run(b.name ?? cur.name, b.pin != null && b.pin !== '' ? hashPin(String(b.pin)) : cur.pin,
+      b.role ?? cur.role, (b.active ?? cur.active) ? 1 : 0, cur.id);
   res.json({ ok: true });
 });
 
@@ -751,31 +886,39 @@ app.post('/api/shifts/close', (req, res) => {
 });
 
 /* ---------------- backup ---------------- */
-const BACKUP_DIR = path.resolve(process.cwd(), 'backups');
+const BACKUP_DIR = process.env.POS_BACKUP_DIR
+  ? path.resolve(process.env.POS_BACKUP_DIR)
+  : path.resolve(process.cwd(), 'backups');
+const BACKUP_KEEP = 30;
 if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
-const localDate = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
 
 app.get('/api/backup', (req, res) => {
   try {
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-    const stamp = localDate();
-    res.download(DB_PATH, `pos-backup-${stamp}.db`);
+    res.download(DB_PATH, `pos-backup-${ymdLocal()}.db`);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 function dailyBackup() {
   try {
-    const stamp = localDate();
-    const file = path.join(BACKUP_DIR, `pos-${stamp}.db`);
-    if (fs.existsSync(file)) return;
-    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-    fs.copyFileSync(DB_PATH, file);
-  } catch {}
+    const file = path.join(BACKUP_DIR, `pos-${ymdLocal()}.db`);
+    if (!fs.existsSync(file)) {
+      db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+      fs.copyFileSync(DB_PATH, file);
+    }
+    const old = fs.readdirSync(BACKUP_DIR)
+      .filter(f => /^pos-\d{4}-\d{2}-\d{2}\.db$/.test(f))
+      .sort()
+      .slice(0, -BACKUP_KEEP);
+    for (const f of old) {
+      try { fs.unlinkSync(path.join(BACKUP_DIR, f)); } catch {}
+    }
+  } catch (e) {
+    console.error('Backup failed:', e.message);
+  }
 }
 dailyBackup();
+setInterval(dailyBackup, 60 * 60 * 1000);
 
 /* ---------------- direct printing ---------------- */
 const moneyText = n => Number(n || 0).toLocaleString('en-US');
@@ -827,7 +970,7 @@ function buildKitchenText(orderId, station = 'kitchen') {
   const table = o.table_id ? db.prepare('SELECT name FROM tables WHERE id = ?').get(o.table_id)?.name : '';
   const rows = [`${station === 'bar' ? 'BAR' : 'KITCHEN'} TICKET`, '-'.repeat(42), `#${o.order_no}  ${table || o.type}`, new Date().toLocaleString('en-GB'), '-'.repeat(42)];
   for (const it of o.items) {
-    if (it.status === 'cancelled') continue;
+    if (it.status !== 'cooking') continue;
     if ((it.station || 'kitchen') !== station) continue;
     rows.push(`${it.name}  x${it.qty}`);
     if (it.note) rows.push(`   >> ${it.note}`);

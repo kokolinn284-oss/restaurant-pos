@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { api } from '../api.js';
+import { api, getToken, today } from '../api.js';
 import { useI18n } from '../i18n.jsx';
 import { Icon, Modal, Field } from '../components/ui.jsx';
 
@@ -54,13 +54,12 @@ export default function Settings({ data, reload, showToast, onLogout }) {
 
   const downloadBackup = async () => {
     try {
-      const staff = JSON.parse(localStorage.getItem('pos_staff') || '{}');
-      const res = await fetch('/api/backup', { headers: { 'x-staff-id': staff.id } });
+      const res = await fetch('/api/backup', { headers: { Authorization: `Bearer ${getToken()}` } });
       if (!res.ok) throw new Error(t('Backup မရယူနိုင်ပါ'));
       const blob = await res.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `pos-backup-${new Date().toISOString().slice(0, 10)}.db`;
+      a.download = `pos-backup-${today()}.db`;
       a.click();
       URL.revokeObjectURL(a.href);
       showToast(t('ဒေတာ Backup ရယူပြီးပါပြီ'));

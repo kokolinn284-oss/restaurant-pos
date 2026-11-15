@@ -355,7 +355,19 @@ const EN = {
   'စားပွဲ ပြင်': 'Edit table',
   'ဝန်ထမ်း ပြင်': 'Edit staff',
   'စားပွဲ ရွေးပြီး order ဖွင့်ပါ — ပါဆယ်နှင့် ပို့ဆောင်လည်း ဒီကနေ စနိုင်သည်': 'Pick a table to open an order — takeaway and delivery also start here',
-  'ဦး': 'guests'
+  'ဦး': 'guests',
+  'ဘီလ်များ': 'Bills',
+  'ဒီစားပွဲမှာ ဘီလ် နှစ်ခုရှိနေပါတယ် — ဖွင့်မည့် ဘီလ်ကို ရွေးပါ။': 'This table has more than one bill — choose which one to open.',
+  'ကျန်ကို ဖြည့်': 'Fill remaining',
+  'ငွေပေးချေမှု ထပ်ထည့်': 'Add payment',
+  'အကြွေးပမာဏ မမှန်ပါ': 'Invalid credit amount',
+  'ငွေပမာဏ ထည့်ပါ': 'Enter an amount',
+  'Order မှတ်တမ်း': 'Order history',
+  'ရှင်းပြီး ဘီလ်များ ပြန်ရှာပြီး ဘောက်ချာ ပြန်ပရင့်နိုင်သည်': 'Find settled bills and reprint receipts',
+  'ရှင်းပြီး': 'Settled',
+  'ပယ်ဖျက်ပြီး': 'Voided',
+  'Order နံပါတ် / စားပွဲ ရှာရန်…': 'Search order no. / table…',
+  'ရှာမည်': 'Search'
 };
 
 const Ctx = createContext(null);

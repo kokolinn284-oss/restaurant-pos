@@ -2,11 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { api, money, today } from '../api.js';
 import { useI18n } from '../i18n.jsx';
 import { Icon, Modal, Field } from '../components/ui.jsx';
+import Receipt from '../components/Receipt.jsx';
 
 const METHOD_KEY = { cash: 'လက်ငင်း', kbzpay: 'KBZPay', wavepay: 'WavePay', bank: 'ဘဏ်/ကတ်', credit: 'အကြွေး' };
 
-export default function Reports({ showToast }) {
+export default function Reports({ data, showToast }) {
   const { t } = useI18n();
+  const [tab, setTab] = useState('report');
   const [date, setDate] = useState(today());
   const [sum, setSum] = useState(null);
   const [daily, setDaily] = useState([]);
@@ -16,6 +18,13 @@ export default function Reports({ showToast }) {
   const [shiftModal, setShiftModal] = useState(null);
   const [cash, setCash] = useState('');
   const [note, setNote] = useState('');
+  const [from, setFrom] = useState(today());
+  const [to, setTo] = useState(today());
+  const [histStatus, setHistStatus] = useState('paid');
+  const [hq, setHq] = useState('');
+  const [history, setHistory] = useState([]);
+  const [receipt, setReceipt] = useState(null);
+  const settings = data?.settings || {};
 
   const load = async (d) => {
     try {
@@ -38,6 +47,28 @@ export default function Reports({ showToast }) {
 
   useEffect(() => { load(date); }, [date]);
 
+  const loadHistory = async () => {
+    try {
+      const params = new URLSearchParams({ from, to, status: histStatus });
+      if (hq.trim()) params.set('q', hq.trim());
+      setHistory(await api(`/orders/history?${params}`));
+    } catch (e) { showToast(e.message); }
+  };
+  useEffect(() => { if (tab === 'history') loadHistory(); }, [tab, from, to, histStatus]);
+
+  const openReceipt = async (id) => {
+    try { setReceipt(await api(`/orders/${id}`)); }
+    catch (e) { showToast(e.message); }
+  };
+
+  const printReceipt = async () => {
+    if (!receipt) return;
+    try {
+      await api(`/print/receipt/${receipt.id}`, { method: 'POST' });
+      showToast(t('ပရင့် ပို့ပြီးပါပြီ'));
+    } catch (e) { showToast(`${t('ပရင့် မအောင်မြင်ပါ')} — ${e.message}`); }
+  };
+
   const submitShift = async () => {
     try {
       if (shiftModal === 'open') {
@@ -56,6 +87,16 @@ export default function Reports({ showToast }) {
 
   return (
     <div className="stack">
+      <div className="tabs">
+        <button className={`tab ${tab === 'report' ? 'on' : ''}`} onClick={() => setTab('report')}>
+          <Icon name="chart" size={15} /> {t('အစီရင်ခံစာ')}
+        </button>
+        <button className={`tab ${tab === 'history' ? 'on' : ''}`} onClick={() => setTab('history')}>
+          <Icon name="receipt" size={15} /> {t('Order မှတ်တမ်း')}
+        </button>
+      </div>
+
+      {tab === 'report' && (<>
       <div className="page-head">
         <div>
           <h2>{t('အရောင်း အစီရင်ခံစာ')}</h2>
@@ -182,6 +223,74 @@ export default function Reports({ showToast }) {
           {shiftModal === 'close' && (
             <Field label={t('မှတ်ချက်')}><input value={note} onChange={e => setNote(e.target.value)} /></Field>
           )}
+        </Modal>
+      )}
+      </>)}
+
+      {tab === 'history' && (
+        <>
+          <div className="page-head">
+            <div>
+              <h2>{t('Order မှတ်တမ်း')}</h2>
+              <p className="muted small">{t('ရှင်းပြီး ဘီလ်များ ပြန်ရှာပြီး ဘောက်ချာ ပြန်ပရင့်နိုင်သည်')}</p>
+            </div>
+          </div>
+          <div className="toolbar">
+            <div className="row gap">
+              <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
+              <input type="date" value={to} onChange={e => setTo(e.target.value)} />
+              <select value={histStatus} onChange={e => setHistStatus(e.target.value)}>
+                <option value="paid">{t('ရှင်းပြီး')}</option>
+                <option value="void">{t('ပယ်ဖျက်ပြီး')}</option>
+                <option value="all">{t('အားလုံး')}</option>
+              </select>
+            </div>
+            <div className="row gap">
+              <div className="search">
+                <Icon name="search" size={18} />
+                <input placeholder={t('Order နံပါတ် / စားပွဲ ရှာရန်…')} value={hq}
+                  onChange={e => setHq(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') loadHistory(); }} />
+              </div>
+              <button className="btn" onClick={loadHistory}>{t('ရှာမည်')}</button>
+            </div>
+          </div>
+          {history.length === 0 ? <div className="empty">{t('ဒေတာ မရှိပါ')}</div> : (
+            <div className="list">
+              {history.map(o => (
+                <button className="list-row" key={o.id} onClick={() => openReceipt(o.id)}>
+                  <span className="quick-ico" style={{ width: 38, height: 38, flexBasis: 38, borderRadius: 11 }}>
+                    <Icon name="receipt" size={17} />
+                  </span>
+                  <div className="grow">
+                    <strong>#{o.order_no}
+                      {o.status === 'void' && <span className="badge bad" style={{ marginLeft: 6 }}>{t('ပယ်ဖျက်ပြီး')}</span>}
+                    </strong>
+                    <small className="muted">
+                      {o.table_name || (o.type === 'delivery' ? t('ပို့ဆောင်') : o.type === 'takeaway' ? t('ပါဆယ်') : t('စားပွဲ'))}
+                      {' · '}{o.item_count} {t('မျိုး')} · {o.closed_at?.slice(0, 16)}
+                    </small>
+                  </div>
+                  <span className="amount">{money(o.total)}</span>
+                  <Icon name="arrow" size={16} />
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {receipt && (
+        <Modal title={t('ဘောက်ချာ')} wide onClose={() => setReceipt(null)}
+          footer={<>
+            <button className="btn ghost" onClick={() => setReceipt(null)}>{t('ပိတ်')}</button>
+            <button className="btn ghost" onClick={() => window.print()}><Icon name="print" size={16} /> {t('ပရင့်ထုတ်')}</button>
+            {(settings.printer_mode || 'browser') !== 'browser' && (
+              <button className="btn" onClick={printReceipt}><Icon name="print" size={16} /> {t('တိုက်ရိုက် ပရင့်')}</button>
+            )}
+          </>}>
+          <Receipt order={receipt} settings={settings}
+            tableName={data?.tables?.find(tb => tb.id === receipt.table_id)?.name} />
         </Modal>
       )}
     </div>
