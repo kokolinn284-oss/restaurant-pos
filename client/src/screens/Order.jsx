@@ -3,10 +3,15 @@ import { api, money } from '../api.js';
 import { useI18n } from '../i18n.jsx';
 import { Icon, Modal, Field } from '../components/ui.jsx';
 import Receipt from '../components/Receipt.jsx';
+import { getFoodImage } from '../foodPresets.js';
+import {
+  getDraft, draftToOrder, addDraftItem, changeDraftQty, saveDraftItem,
+  removeDraftItem, sendDraftKitchen, payDraft, removeDraft
+} from '../offline.js';
 
 const TINTS = ['#0e9f6e', '#f59e0b', '#5b5bd6', '#0d94d2', '#ef4444', '#8b5cf6'];
 
-export default function Order({ orderId, data, reload, showToast, onBack, openOrder }) {
+export default function Order({ orderId, data, reload, showToast, onBack, openOrder, online = true, drafts = [], syncNow }) {
   const { t } = useI18n();
   const [order, setOrder] = useState(null);
   const [cat, setCat] = useState('all');
@@ -18,17 +23,41 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
   const [splitMode, setSplitMode] = useState(false);
   const [selected, setSelected] = useState([]);
 
+  const isLocal = String(orderId || '').startsWith('offline-');
+
   const loadOrder = async () => {
+    if (isLocal) {
+      const d = getDraft(orderId);
+      if (d) setOrder(draftToOrder(d));
+      else { showToast(t('အော့ဖ်လိုင်း order မတွေ့ပါ')); onBack(); }
+      return;
+    }
     try { setOrder(await api(`/orders/${orderId}`)); }
-    catch (e) { showToast(e.message); onBack(); }
+    catch (e) {
+      if (e.offline || e.status === 401) return;
+      showToast(e.message);
+      onBack();
+    }
   };
 
   useEffect(() => { loadOrder(); }, [orderId]);
+  useEffect(() => {
+    if (!isLocal) return;
+    const d = drafts.find(x => x.key === orderId);
+    if (d) setOrder(draftToOrder(d));
+  }, [drafts, isLocal, orderId]);
   useEffect(() => { setSplitMode(false); setSelected([]); }, [orderId]);
   useEffect(() => {
+    if (!cartOpen) return;
+    const onKey = (e) => { if (e.key === 'Escape') setCartOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cartOpen]);
+  useEffect(() => {
+    if (isLocal) return;
     const timer = setInterval(loadOrder, 12000);
     return () => clearInterval(timer);
-  }, [orderId]);
+  }, [orderId, isLocal]);
 
   const settings = data.settings;
   const categories = data.categories;
@@ -45,6 +74,12 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
 
   const addItem = async (item) => {
     if (!order || order.status !== 'open') return;
+    if (isLocal) {
+      addDraftItem(orderId, item);
+      showToast(`${item.name} ${t('ထည့်ပြီး')}`);
+      return;
+    }
+    if (!online) return showToast(t('ချိတ်ဆက်မှု ပြန်ရမှ ဒီ order ကို ပြင်နိုင်မည်'));
     try {
       await api(`/orders/${orderId}/items`, { method: 'POST', body: JSON.stringify({ itemId: item.id, qty: 1 }) });
       await loadOrder();
@@ -54,6 +89,11 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
 
   const changeQty = async (it, delta) => {
     const qty = it.qty + delta;
+    if (isLocal) {
+      changeDraftQty(orderId, it.id, qty);
+      return;
+    }
+    if (!online) return showToast(t('ချိတ်ဆက်မှု ပြန်ရမှ ဒီ order ကို ပြင်နိုင်မည်'));
     try {
       if (qty <= 0) await api(`/order-items/${it.id}`, { method: 'DELETE' });
       else await api(`/order-items/${it.id}`, { method: 'PATCH', body: JSON.stringify({ qty }) });
@@ -63,6 +103,12 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
 
   const saveItem = async () => {
     if (!editItem) return;
+    if (isLocal) {
+      saveDraftItem(orderId, editItem.id, { qty: Number(editItem.qty) || 1, note: editItem.note || '' });
+      setEditItem(null);
+      return;
+    }
+    if (!online) return showToast(t('ချိတ်ဆက်မှု ပြန်ရမှ ဒီ order ကို ပြင်နိုင်မည်'));
     try {
       await api(`/order-items/${editItem.id}`, {
         method: 'PATCH',
@@ -75,6 +121,12 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
 
   const removeItem = async () => {
     if (!editItem) return;
+    if (isLocal) {
+      removeDraftItem(orderId, editItem.id);
+      setEditItem(null);
+      return;
+    }
+    if (!online) return showToast(t('ချိတ်ဆက်မှု ပြန်ရမှ ဒီ order ကို ပြင်နိုင်မည်'));
     try {
       await api(`/order-items/${editItem.id}`, { method: 'DELETE' });
       setEditItem(null);
@@ -83,6 +135,12 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
   };
 
   const sendKitchen = async () => {
+    if (isLocal) {
+      const sent = sendDraftKitchen(orderId);
+      if (sent) showToast(t('မီးဖိုချောင်သို့ ပို့ပြီး — ချိတ်ဆက်ချိန် sync ဖြစ်မည်'));
+      return;
+    }
+    if (!online) return showToast(t('ချိတ်ဆက်မှု ပြန်ရမှ မီးဖိုချောင်ပို့နိုင်မည်'));
     try {
       const r = await api(`/orders/${orderId}/send-kitchen`, { method: 'POST' });
       await loadOrder();
@@ -93,6 +151,13 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
 
   const voidOrder = async () => {
     if (!window.confirm(t('ဒီ order ကို ပယ်ဖျက်မှာ သေချာပါသလား?'))) return;
+    if (isLocal) {
+      removeDraft(orderId);
+      showToast(t('ဖျက်ပြီးပါပြီ'));
+      onBack();
+      return;
+    }
+    if (!online) return showToast(t('ချိတ်ဆက်မှု ပြန်ရမှ ပယ်ဖျက်နိုင်မည်'));
     try {
       await api(`/orders/${orderId}/void`, { method: 'POST' });
       await reload();
@@ -103,6 +168,7 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
   const toggleSel = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
 
   const splitBill = async () => {
+    if (isLocal || !online) return showToast(t('အော့ဖ်လိုင်းမှာ ဘီလ်ခွဲလို့ မရပါ'));
     if (!selected.length) return showToast(t('ခွဲမည့် ဟင်း ရွေးပါ'));
     if (selected.length === activeItems.length) return showToast(t('အနည်းဆုံး တစ်ခု မူလဘီလ်တွင် ချန်ထားပါ'));
     try {
@@ -125,8 +191,22 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
     showToast(`${t('ငွေရှင်းပြီးပါပြီ')} · ${money(result.total)}`);
   };
 
+  const offlinePaid = (info) => {
+    const d = payDraft(orderId, info);
+    if (!d) return showToast(t('အော့ဖ်လိုင်း order မတွေ့ပါ'));
+    const o = draftToOrder(d);
+    setOrder(o);
+    setReceipt(o);
+    setPayOpen(false);
+    setCartOpen(false);
+    showToast(`${t('အော့ဖ်လိုင်း ငွေရှင်းပြီး')} · ${money(o.total)}`);
+    reload?.();
+    syncNow?.(true);
+  };
+
   const printDirect = async () => {
     if (!receipt) return;
+    if (isLocal || !online) return showToast(t('အော့ဖ်လိုင်းမှာ တိုက်ရိုက် ပရင့် မရပါ — ဘရောက်ဇာ ပရင့် သုံးပါ'));
     try {
       await api(`/print/receipt/${receipt.id}`, { method: 'POST' });
       showToast(t('ပရင့် ပို့ပြီးပါပြီ'));
@@ -159,7 +239,11 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
           <div className="search">
             <Icon name="search" size={18} />
             <input placeholder={t('ဟင်း ရှာရန်…')} value={q} onChange={e => setQ(e.target.value)} />
-            {q && <button className="link-btn" onClick={() => setQ('')}>{t('ဖျက်')}</button>}
+            {q && (
+              <button className="link-btn" onClick={() => setQ('')} aria-label={t('ဖျက်')} title={t('ဖျက်')}>
+                <Icon name="close" size={16} />
+              </button>
+            )}
           </div>
           <div className="chips">
             <button className={`chip ${cat === 'all' ? 'on' : ''}`} onClick={() => setCat('all')}>{t('အားလုံး')}</button>
@@ -170,27 +254,55 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
         </div>
 
         <div className="item-grid">
-          {items.map(i => (
-            <button key={i.id} className={`item-card ${i.is_alcohol ? 'alc' : ''}`}
-              style={{ '--tint': i.is_alcohol ? '#ef4444' : catTint(i.category_id) }}
-              onClick={() => addItem(i)} disabled={!isOpen}>
-              <span className="item-name">{i.is_alcohol && <span className="alc-flag">18+</span>}{i.name}</span>
-              <span className="item-price">{money(i.price)}</span>
-              <span className="item-add"><Icon name="plus" size={14} /></span>
-            </button>
-          ))}
+          {items.map(i => {
+            const catObj = categories.find(c => c.id === i.category_id);
+            const imgUrl = getFoodImage(i, catObj?.name);
+            return (
+              <button key={i.id} className={`item-card ${i.is_alcohol ? 'alc' : ''} has-img`}
+                style={{ '--tint': i.is_alcohol ? '#ef4444' : catTint(i.category_id) }}
+                onClick={() => addItem(i)} disabled={!isOpen}>
+                <div className="item-card-media">
+                  <img src={imgUrl} alt="" className="item-card-img" loading="lazy" />
+                  {i.is_alcohol && <span className="alc-flag">18+</span>}
+                  {i.code && <span className="item-code-badge">{i.code}</span>}
+                </div>
+                <div className="item-card-content">
+                  <span className="item-name">{i.name}</span>
+                  <div className="item-card-foot">
+                    <span className="item-price">{money(i.price)}</span>
+                    <span className="item-add"><Icon name="plus" size={14} /></span>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
           {items.length === 0 && <div className="empty" style={{ gridColumn: '1 / -1' }}>{t('ဟင်း မတွေ့ပါ')}</div>}
         </div>
       </div>
 
       <aside className={`cart-pane ${cartOpen ? 'open' : ''}`}>
+        <div className="cart-sheet-handle mobile-only" onClick={() => setCartOpen(false)}><span /></div>
         <div className="cart-head">
           <div>
             <h3>{title}</h3>
-            <div className="order-tag">#{order.order_no} · {t('ထိုင်ခုံ')} {order.guests} · {activeItems.length} {t('မျိုး')}</div>
+            <div className="order-tag">
+              #{order.order_no} · {t('ထိုင်ခုံ')} {order.guests} · {activeItems.length} {t('မျိုး')}
+              {isLocal && (
+                <span className={`tag ${online ? 'local' : 'offline'}`}>
+                  {online ? t('local') : t('အော့ဖ်လိုင်း')}
+                </span>
+              )}
+            </div>
           </div>
-          <button className="icon-btn mobile-only" onClick={() => setCartOpen(false)} aria-label={t('ပိတ်')}><Icon name="close" /></button>
+          <button className="icon-btn mobile-only" onClick={() => setCartOpen(false)} aria-label={t('ပိတ်')}><Icon name="close" size={18} /></button>
         </div>
+
+        {isLocal && (
+          <div className="offline-note" style={{ margin: '10px 14px 0' }}>
+            <Icon name="wifi" size={14} />
+            {online ? t('local order — sync မလုပ်ရသေးပါ') : t('အော့ဖ်လိုင်း — ငွေရှင်းပြီး sync စောင့်ထားမည်')}
+          </div>
+        )}
 
         <div className="cart-items">
           {activeItems.length === 0 && <div className="empty" style={{ margin: 14 }}>{t('ပစ္စည်း ရွေးချယ်ပါ')}</div>}
@@ -208,10 +320,10 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
                 </div>
                 <div className="ci-sub">
                   <span>{money(it.price)}</span>
-                  <button className="qty-btn" onClick={() => changeQty(it, -0.5)}>−</button>
+                  <button className="qty-btn" onClick={() => changeQty(it, -0.5)} aria-label="Decrease quantity">−</button>
                   <span className="qty">{it.qty}</span>
-                  <button className="qty-btn" onClick={() => changeQty(it, 0.5)}>+</button>
-                  <button className="link-btn" onClick={() => setEditItem({ ...it })}>{t('မှတ်ချက်')}</button>
+                  <button className="qty-btn" onClick={() => changeQty(it, 0.5)} aria-label="Increase quantity">+</button>
+                  <button className="link-btn" onClick={() => setEditItem({ ...it })}><Icon name="edit" size={13} /> {t('မှတ်ချက်')}</button>
                 </div>
                 {it.note && <div className="ci-note">{it.note}</div>}
               </div>
@@ -236,13 +348,15 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
                 <button className="btn ghost" onClick={sendKitchen} disabled={!isOpen || !activeItems.length}>
                   <Icon name="fire" size={17} /> {t('မီးဖိုချောင်ပို့')}
                 </button>
-                <button className="btn" onClick={() => setPayOpen(true)} disabled={!isOpen || !activeItems.length}>
+                <button className="btn" data-action="pay" onClick={() => setPayOpen(true)}
+                  disabled={!isOpen || !activeItems.length || (!online && !isLocal)}
+                  title={!online && !isLocal ? t('ချိတ်ဆက်မှု ပြန်ရမှ ငွေရှင်းနိုင်မည်') : undefined}>
                   <Icon name="cash" size={17} /> {t('ငွေရှင်း')}
                 </button>
               </div>
               <div className="cart-actions">
                 <button className="btn danger sm" onClick={voidOrder} disabled={!isOpen}>{t('ပယ်ဖျက်')}</button>
-                <button className="btn ghost sm" onClick={() => setSplitMode(true)} disabled={!isOpen || activeItems.length < 2}>{t('ဘီလ်ခွဲ')}</button>
+                <button className="btn ghost sm" onClick={() => setSplitMode(true)} disabled={!isOpen || activeItems.length < 2 || isLocal || !online}>{t('ဘီလ်ခွဲ')}</button>
                 <button className="btn ghost sm" onClick={onBack}>{t('နောက်သို့')}</button>
               </div>
             </>
@@ -273,8 +387,11 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
       )}
 
       {payOpen && (
-        <PayModal order={order} subtotal={subtotal} settings={settings} customers={data.customers}
-          promotions={data.promotions || []} onClose={() => setPayOpen(false)} onPaid={paid} />
+        <PayModal order={order} subtotal={subtotal}
+          settings={isLocal ? { ...settings, ...(order.settings || {}) } : settings}
+          customers={data.customers} promotions={data.promotions || []}
+          offline={isLocal} onOffline={offlinePaid}
+          onClose={() => setPayOpen(false)} onPaid={paid} />
       )}
 
       {receipt && (
@@ -282,7 +399,7 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
           footer={<>
             <button className="btn ghost" onClick={closeReceipt}>{t('ပိတ်')}</button>
             <button className="btn ghost" onClick={() => window.print()}><Icon name="print" size={16} /> {t('ပရင့်ထုတ်')}</button>
-            {settings.printer_mode !== 'browser' && (
+            {settings.printer_mode !== 'browser' && !isLocal && online && (
               <button className="btn" onClick={printDirect}><Icon name="print" size={16} /> {t('တိုက်ရိုက် ပရင့်')}</button>
             )}
           </>}>
@@ -293,7 +410,7 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
   );
 }
 
-function PayModal({ order, subtotal, settings, customers = [], promotions = [], onClose, onPaid }) {
+function PayModal({ order, subtotal, settings, customers = [], promotions = [], offline = false, onOffline, onClose, onPaid }) {
   const { t } = useI18n();
   const taxRate = Number(settings.tax_rate || 0);
   const serviceRate = Number(settings.service_rate || 0);
@@ -389,6 +506,15 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
     const payments = rows
       .map(r => ({ method: r.method, amount: amountOf(r) }))
       .filter(p => p.amount > 0);
+    if (offline) {
+      onOffline?.({
+        discount: disc,
+        promotionId: promotionId || null,
+        customerId: customerId || null,
+        payments
+      });
+      return;
+    }
     setBusy(true);
     setErr('');
     try {
@@ -423,6 +549,12 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
       <button className="btn ghost" onClick={onClose}>{t('မလုပ်တော့')}</button>
       <button className="btn" disabled={busy} onClick={submit}>{t('ငွေရှင်းမည်')} · {money(total)}</button>
     </>}>
+      {offline && (
+        <div className="offline-note" style={{ marginTop: 0 }}>
+          <Icon name="wifi" size={15} />
+          {t('အော့ဖ်လိုင်း ငွေရှင်း — ချိတ်ဆက်ချိန် အလိုအလျောက် sync ဖြစ်မည်')}
+        </div>
+      )}
       <div className="pay-summary">
         <div className="row between"><span>{t('စုစုပေါင်း')}</span><span>{money(subtotal)}</span></div>
         <div className="row between">

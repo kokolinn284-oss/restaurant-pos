@@ -74,6 +74,17 @@ export default function Login({ onLogin }) {
           </button>
         </div>
 
+        <div className="login-customer-link" style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--line)' }}>
+          <button
+            type="button"
+            className="btn ghost full"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px 14px', borderRadius: 'var(--r-sm)' }}
+            onClick={() => { window.location.hash = '#/catalog'; }}
+          >
+            <Icon name="menu" size={16} />
+            <span>{t('အွန်လိုင်းမီနူး ကြည့်ရန်')}</span>
+          </button>
+        </div>
       </div>
     </div>
   );

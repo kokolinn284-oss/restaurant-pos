@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const DATA_DIR = process.env.POS_DATA_DIR
+export const DATA_DIR = process.env.POS_DATA_DIR
   ? path.resolve(process.env.POS_DATA_DIR)
   : path.resolve(process.cwd(), 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -74,7 +74,8 @@ CREATE TABLE IF NOT EXISTS orders (
   service INTEGER NOT NULL DEFAULT 0,
   total INTEGER NOT NULL DEFAULT 0,
   opened_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-  closed_at TEXT
+  closed_at TEXT,
+  client_ref TEXT
 );
 
 CREATE TABLE IF NOT EXISTS order_items (
@@ -243,8 +244,17 @@ function ensureColumn(table, col, def) {
 }
 ensureColumn('order_items', 'stock_deducted', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('orders', 'promotion_id', 'INTEGER');
+ensureColumn('orders', 'customer_name', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('orders', 'customer_phone', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('orders', 'source', "TEXT NOT NULL DEFAULT 'pos'");
+ensureColumn('orders', 'client_ref', 'TEXT');
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_client_ref ON orders(client_ref) WHERE client_ref IS NOT NULL');
 ensureColumn('menu_items', 'is_alcohol', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('menu_items', 'station', "TEXT NOT NULL DEFAULT 'kitchen'");
+ensureColumn('menu_items', 'image', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('menu_items', 'code', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('inventory_items', 'sku', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('inventory_items', 'category', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('expenses', 'spent_on', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('expenses', 'method', "TEXT NOT NULL DEFAULT 'cash'");
 ensureColumn('expenses', 'vendor', "TEXT NOT NULL DEFAULT ''");

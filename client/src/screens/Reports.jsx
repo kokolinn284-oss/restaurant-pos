@@ -307,21 +307,25 @@ export default function Reports({ data, showToast }) {
             </div>
           </div>
           <div className="toolbar">
-            <div className="row gap">
-              <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
-              <input type="date" value={to} onChange={e => setTo(e.target.value)} />
-              <select value={histStatus} onChange={e => setHistStatus(e.target.value)}>
+            <div className="toolbar-filters">
+              <div className="date-range">
+                <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
+                <span className="date-sep">~</span>
+                <input type="date" value={to} onChange={e => setTo(e.target.value)} />
+              </div>
+              <select value={histStatus} onChange={e => setHistStatus(e.target.value)} className="cat-select">
                 <option value="paid">{t('ရှင်းပြီး')}</option>
                 <option value="void">{t('ပယ်ဖျက်ပြီး')}</option>
                 <option value="all">{t('အားလုံး')}</option>
               </select>
             </div>
-            <div className="row gap">
+            <div className="toolbar-search">
               <div className="search">
                 <Icon name="search" size={18} />
                 <input placeholder={t('Order နံပါတ် / စားပွဲ ရှာရန်…')} value={hq}
                   onChange={e => setHq(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') loadHistory(); }} />
+                {hq && <button className="link-btn" onClick={() => setHq('')} aria-label={t('ဖျက်')}><Icon name="close" size={15} /></button>}
               </div>
               <button className="btn" onClick={loadHistory}>{t('ရှာမည်')}</button>
               <button className="btn ghost" onClick={exportHistory} disabled={!history.length}>CSV</button>

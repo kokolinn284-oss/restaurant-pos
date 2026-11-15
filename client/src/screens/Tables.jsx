@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { api, money } from '../api.js';
 import { useI18n } from '../i18n.jsx';
 import { Icon, Modal, Field, Empty } from '../components/ui.jsx';
+import { createDraft } from '../offline.js';
 
 function nextHour() {
   const d = new Date(Date.now() + 60 * 60 * 1000);
@@ -9,7 +10,7 @@ function nextHour() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-export default function Tables({ data, openOrder, reload, showToast }) {
+export default function Tables({ data, openOrder, reload, showToast, staff, online = true, drafts = [], syncNow }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const [billsFor, setBillsFor] = useState(null);
@@ -19,10 +20,19 @@ export default function Tables({ data, openOrder, reload, showToast }) {
   const zones = [...new Set(data.tables.map(tb => tb.zone || 'အခြား'))];
   const reservations = data.reservations || [];
   const openValue = (data.openOrders || []).reduce((s, o) => s + (o.total || 0), 0);
+  const openDrafts = drafts.filter(d => d.status === 'open');
 
   const openTable = async (tb) => {
     if (busy) return;
+    const local = drafts.filter(d => d.table_id === tb.id && d.status === 'open').slice(-1)[0];
+    if (local) return openOrder(local.key);
     if (tb.order_id) {
+      if (!online) {
+        const d = createDraft({ type: 'dine_in', tableId: tb.id, guests: tb.guests || 2, staff, data });
+        openOrder(d.key);
+        showToast(t('အော့ဖ်လိုင်း ဘီလ်အသစ် ဖွင့်ထားသည် — ချိတ်ဆက်ချိန် sync ဖြစ်မည်'));
+        return;
+      }
       const bills = data.openOrders.filter(o => o.table_id === tb.id);
       if (bills.length > 1) {
         setBillsFor({ table: tb, bills });
@@ -30,23 +40,45 @@ export default function Tables({ data, openOrder, reload, showToast }) {
       }
       return openOrder(tb.order_id);
     }
+    if (!online) {
+      const d = createDraft({ type: 'dine_in', tableId: tb.id, guests: tb.seats ? Math.min(tb.seats, 4) : 2, staff, data });
+      openOrder(d.key);
+      return;
+    }
     setBusy(true);
     try {
       const r = await api('/orders', { method: 'POST', body: JSON.stringify({ type: 'dine_in', tableId: tb.id }) });
       await reload();
       openOrder(r.id);
-    } catch (e) { showToast(e.message); }
+    } catch (e) {
+      if (e.offline) {
+        const d = createDraft({ type: 'dine_in', tableId: tb.id, guests: tb.seats ? Math.min(tb.seats, 4) : 2, staff, data });
+        openOrder(d.key);
+        showToast(t('အော့ဖ်လိုင်း — order ကို device မှာ သိမ်းထားသည်'));
+      } else showToast(e.message);
+    }
     setBusy(false);
   };
 
   const newOrder = async (type) => {
     if (busy) return;
+    if (!online) {
+      const d = createDraft({ type, staff, data });
+      openOrder(d.key);
+      return;
+    }
     setBusy(true);
     try {
       const r = await api('/orders', { method: 'POST', body: JSON.stringify({ type }) });
       await reload();
       openOrder(r.id);
-    } catch (e) { showToast(e.message); }
+    } catch (e) {
+      if (e.offline) {
+        const d = createDraft({ type, staff, data });
+        openOrder(d.key);
+        showToast(t('အော့ဖ်လိုင်း — order ကို device မှာ သိမ်းထားသည်'));
+      } else showToast(e.message);
+    }
     setBusy(false);
   };
 
@@ -91,7 +123,7 @@ export default function Tables({ data, openOrder, reload, showToast }) {
       <div className="page-head">
         <div>
           <h2>{t('စားပွဲ & အရောင်း')}</h2>
-          <p className="muted small">{t('စားပွဲ ရွေးပြီး order ဖွင့်ပါ — ပါဆယ်နှင့် ပို့ဆောင်လည်း ဒီကနေ စနိုင်သည်')}</p>
+          <p className="muted small">{t('စားပွဲရွေးချယ်ပြီး အရောင်းစတင်ပါ')}</p>
         </div>
         <div className="row gap">
           <button className="btn amber" onClick={() => newOrder('takeaway')}><Icon name="cart" size={17} /> {t('ပါဆယ်')}</button>
@@ -104,29 +136,29 @@ export default function Tables({ data, openOrder, reload, showToast }) {
           <span className="quick-ico"><Icon name="cart" /></span>
           <div>
             <strong>{t('ပါဆယ်')}</strong>
-            <small>{t('အပြင်ယူ အရောင်း')}</small>
+            <small>{t('ပါဆယ်အရောင်း')}</small>
           </div>
         </button>
         <button className="quick-card delivery" onClick={() => newOrder('delivery')}>
           <span className="quick-ico"><Icon name="phone" /></span>
           <div>
             <strong>{t('ပို့ဆောင်')}</strong>
-            <small>{t('အိမ်အရောက် ပို့')}</small>
+            <small>{t('အိမ်အရောက်ပို့')}</small>
           </div>
         </button>
         <div className="quick-stat">
-          <span>{t('ဖွင့်ထားသော Order')}</span>
+          <span>{t('လက်ရှိ အော်ဒါ')}</span>
           <strong>{data.openOrders.length}</strong>
         </div>
         <div className="quick-stat">
-          <span>{t('ဖွင့်ထားသော တန်ကြေး')}</span>
+          <span>{t('လက်ကျန် တန်ဖိုး')}</span>
           <strong>{money(openValue)}</strong>
         </div>
       </div>
 
       <section className="zone">
         <div className="zone-head">
-          <h3>{t('ကြိုတင်မှာယူမှုများ')}</h3>
+          <h3>{t('ကြိုတင်မှာယူမှု')}</h3>
           <button className="btn ghost sm" onClick={() => setResOpen(true)}><Icon name="plus" size={14} /> {t('ကြိုတင်မှာယူ')}</button>
         </div>
         {reservations.length === 0 ? <Empty text={t('ကြိုတင်မှာယူမှု မရှိပါ')} /> : (
@@ -151,6 +183,39 @@ export default function Tables({ data, openOrder, reload, showToast }) {
         )}
       </section>
 
+      {drafts.length > 0 && (
+        <section className="zone">
+          <div className="zone-head">
+            <h3>{t('အော့ဖ်လိုင်း အော်ဒါများ')}</h3>
+            <button className="btn ghost sm" onClick={() => syncNow?.()} disabled={!online}>
+              <Icon name="wifi" size={14} /> {t('Sync လုပ်မည်')}
+            </button>
+          </div>
+          <div className="list">
+            {drafts.map(d => (
+              <button key={d.key} className="list-row" onClick={() => openOrder(d.key)}>
+                <span className="quick-ico" style={{ width: 38, height: 38, flexBasis: 38, borderRadius: 11 }}>
+                  <Icon name={d.type === 'delivery' ? 'phone' : d.type === 'takeaway' ? 'cart' : 'table'} size={17} />
+                </span>
+                <div className="grow">
+                  <strong>#{d.order_no} · {d.status === 'paid' ? t('ငွေရှင်းပြီး') : t('local အော်ဒါ')}</strong>
+                  <small className="muted">
+                    {d.items.length} {t('မျိုး')} · {d.table_id
+                      ? (data.tables.find(tb => tb.id === d.table_id)?.name || t('စားပွဲ'))
+                      : d.type === 'delivery' ? t('ပို့ဆောင်') : t('ပါဆယ်')} · {money(d.total)}
+                  </small>
+                  {d.error && <small className="error-text">{d.error}</small>}
+                </div>
+                <span className={`badge ${d.status === 'paid' ? 'bad' : 'ok'}`}>
+                  {d.status === 'paid' ? t('sync စောင့်') : t('local')}
+                </span>
+                <Icon name="arrow" size={16} />
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       {zones.map(zone => (
         <section key={zone} className="zone">
           <div className="zone-head">
@@ -160,23 +225,35 @@ export default function Tables({ data, openOrder, reload, showToast }) {
             </span>
           </div>
           <div className="table-grid">
-            {data.tables.filter(tb => (tb.zone || 'အခြား') === zone).map(tb => (
-              <button key={tb.id} className={`table-card ${tb.order_id ? 'busy' : ''}`} onClick={() => openTable(tb)}>
-                <div className="tc-top">
-                  <span className="tc-name">{tb.name}</span>
-                  <span className={`badge ${tb.order_id ? 'bad' : 'ok'}`}>{tb.order_id ? t('အသုံးပြုနေသည်') : t('လွတ်နေသည်')}</span>
-                </div>
-                <div className="tc-seats">{t('ထိုင်ခုံ')} {tb.seats} · {t(tb.zone || 'အခြား')}</div>
-                {tb.order_id ? (
-                  <div className="tc-order">
-                    <span>#{tb.order_no}{tb.bills > 1 ? ` +${tb.bills - 1}` : ''}</span>
-                    <strong>{money(tb.bills > 1 ? tb.open_total : tb.total)}</strong>
+            {data.tables.filter(tb => (tb.zone || 'အခြား') === zone).map(tb => {
+              const locals = openDrafts.filter(d => d.table_id === tb.id);
+              const local = locals[locals.length - 1];
+              const busy = !!(tb.order_id || local);
+              return (
+                <button key={tb.id} className={`table-card ${busy ? 'busy' : ''}`} onClick={() => openTable(tb)}>
+                  <div className="tc-top">
+                    <span className="tc-name">{tb.name}</span>
+                    <span className={`badge ${busy ? 'bad' : 'ok'}`}>
+                      {local ? t('local အော်ဒါ') : tb.order_id ? t('အသုံးပြုနေသည်') : t('လွတ်နေသည်')}
+                    </span>
                   </div>
-                ) : (
-                  <div className="tc-open"><Icon name="plus" /> {t('Order ဖွင့်ရန်')}</div>
-                )}
-              </button>
-            ))}
+                  <div className="tc-seats">{t('ထိုင်ခုံ')} {tb.seats} · {t(tb.zone || 'အခြား')}</div>
+                  {local ? (
+                    <div className="tc-order local">
+                      <span>#{local.order_no}{locals.length > 1 ? ` +${locals.length - 1}` : ''}</span>
+                      <strong>{money(local.total)}</strong>
+                    </div>
+                  ) : tb.order_id ? (
+                    <div className="tc-order">
+                      <span>#{tb.order_no}{tb.bills > 1 ? ` +${tb.bills - 1}` : ''}</span>
+                      <strong>{money(tb.bills > 1 ? tb.open_total : tb.total)}</strong>
+                    </div>
+                  ) : (
+                    <div className="tc-open"><Icon name="plus" /> {t('Order ဖွင့်ရန်')}</div>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </section>
       ))}

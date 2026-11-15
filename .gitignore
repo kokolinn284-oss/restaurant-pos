@@ -4,3 +4,6 @@ data/
 backups/
 *.log
 .env
+scripts/inspection_screenshots/
+scripts/inspection_results.json
+scripts/extracted_keys.json

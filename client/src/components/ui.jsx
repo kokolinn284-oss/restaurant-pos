@@ -38,7 +38,29 @@ const paths = {
   shield: 'M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6zM9 12l2 2 4-4',
   calendar: 'M4 5h16v16H4zM8 3v4M16 3v4M4 10h16',
   wifi: 'M5 12.5a10 10 0 0 1 14 0M8.5 16a5.5 5.5 0 0 1 7 0M12 19.5h.01',
-  beer: 'M6 8h10v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1zM16 10h3a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-3M9 4c0-1.2 1-1.2 1-2.4M13 4c0-1.2 1-1.2 1-2.4M9 12v5M13 12v5'
+  beer: 'M6 8h10v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1zM16 10h3a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-3M9 4c0-1.2 1-1.2 1-2.4M13 4c0-1.2 1-1.2 1-2.4M9 12v5M13 12v5',
+  grid: 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z',
+  list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
+  compact: 'M4 6h16M4 10h16M4 14h16M4 18h16',
+  filter: 'M22 3H2l8 9.46V19l4 2v-8.54L22 3z',
+  download: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3',
+  upload: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12',
+  sort: 'M7 15l5 5 5-5M7 9l5-5 5 5',
+  sortAsc: 'M11 5h10M11 9h7M11 13h4M3 17l4 4 4-4M7 21V3',
+  sortDesc: 'M11 5h10M11 9h7M11 13h4M3 7l4-4 4 4M7 3v18',
+  image: 'M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21',
+  checkSquare: 'M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11',
+  square: 'M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z',
+  chevronLeft: 'M15 18l-6-6 6-6',
+  chevronRight: 'M9 18l6-6-6-6',
+  chevronsLeft: 'M11 17l-5-5 5-5M18 17l-5-5 5-5',
+  chevronsRight: 'M6 17l5-5-5-5M13 17l5-5-5-5',
+  file: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6',
+  camera: 'M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+  calculator: 'M4 3h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm4 4h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 18h.01M12 18h.01M16 18h.01',
+  copy: 'M8 4v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7.5L16.5 4H10a2 2 0 0 0-2 2zm-4 4h2v12h10v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8z',
+  volume: 'M11 5L6 9H2v6h4l5 4V5zM15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14',
+  volumeMute: 'M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6'
 };
 
 export function Icon({ name, size = 20, strokeWidth = 1.8 }) {
@@ -68,13 +90,50 @@ export function ThemeToggle({ className = '' }) {
   );
 }
 
-export function LangToggle({ compact = true }) {
+export const MyanmarFlag = ({ size = 20 }) => (
+  <svg width={size} height={Math.round(size * 0.67)} viewBox="0 0 36 24" style={{ borderRadius: 2, verticalAlign: 'middle', flexShrink: 0, boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+    <rect width="36" height="8" fill="#FECB00" />
+    <rect y="8" width="36" height="8" fill="#34B233" />
+    <rect y="16" width="36" height="8" fill="#EA2839" />
+    <polygon points="18,4 20.4,11.3 28.1,11.3 21.9,15.8 24.3,23.1 18,18.6 11.7,23.1 14.1,15.8 7.9,11.3 15.6,11.3" fill="#FFFFFF" />
+  </svg>
+);
+
+export const EnglishFlag = ({ size = 20 }) => (
+  <svg width={size} height={Math.round(size * 0.67)} viewBox="0 0 36 24" style={{ borderRadius: 2, verticalAlign: 'middle', flexShrink: 0, boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+    <clipPath id="uk-flag-clip">
+      <rect width="36" height="24" rx="2" />
+    </clipPath>
+    <g clipPath="url(#uk-flag-clip)">
+      <rect width="36" height="24" fill="#012169" />
+      <path d="M0,0 L36,24 M36,0 L0,24" stroke="#FFFFFF" strokeWidth="4" />
+      <path d="M0,0 L36,24 M36,0 L0,24" stroke="#C8102E" strokeWidth="2.4" />
+      <path d="M18,0 V24 M0,12 H36" stroke="#FFFFFF" strokeWidth="6" />
+      <path d="M18,0 V24 M0,12 H36" stroke="#C8102E" strokeWidth="3.6" />
+    </g>
+  </svg>
+);
+
+export function LangToggle({ className = '', showLabel = true }) {
   const { lang, setLang } = useI18n();
+  const toggle = () => setLang(lang === 'my' ? 'en' : 'my');
+  const isMy = lang === 'my';
+
   return (
-    <div className="seg" role="group" aria-label="Language">
-      <button className={lang === 'my' ? 'on' : ''} onClick={() => setLang('my')}>မြ</button>
-      <button className={lang === 'en' ? 'on' : ''} onClick={() => setLang('en')}>EN</button>
-    </div>
+    <button
+      type="button"
+      className={`lang-toggle-btn ${className}`}
+      onClick={toggle}
+      title={isMy ? 'Switch to English (EN)' : 'မြန်မာဘာသာသို့ ပြောင်းရန်'}
+      aria-label={isMy ? 'Switch to English (EN)' : 'မြန်မာဘာသာသို့ ပြောင်းရန်'}
+    >
+      {isMy ? <MyanmarFlag size={19} /> : <EnglishFlag size={19} />}
+      {showLabel && (
+        <span className="lang-label-text">
+          {isMy ? 'မြန်မာ' : 'EN'}
+        </span>
+      )}
+    </button>
   );
 }
 

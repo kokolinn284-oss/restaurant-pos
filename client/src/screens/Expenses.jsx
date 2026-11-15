@@ -132,27 +132,31 @@ export default function Expenses({ staff, reload, showToast }) {
             </button>
           )}
           <button className="btn ghost" onClick={exportCsv} disabled={!data.rows.length}>CSV</button>
-          <button className="btn" onClick={() => { setForm({ ...newForm(), category: formCats[0] || CATS[0] }); setAddOpen(true); }}>
+          <button className="btn" data-action="add-expense" onClick={() => { setForm({ ...newForm(), category: formCats[0] || CATS[0] }); setAddOpen(true); }}>
             <Icon name="plus" size={16} /> {t('အသုံးစရိတ် ထည့်')}
           </button>
         </div>
       </div>
 
       <div className="toolbar">
-        <div className="row gap">
-          <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
-          <input type="date" value={to} onChange={e => setTo(e.target.value)} />
-          <select value={category} onChange={e => setCategory(e.target.value)}>
+        <div className="toolbar-filters">
+          <div className="date-range">
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
+            <span className="date-sep">~</span>
+            <input type="date" value={to} onChange={e => setTo(e.target.value)} />
+          </div>
+          <select value={category} onChange={e => setCategory(e.target.value)} className="cat-select">
             <option value="">{t('အားလုံး')}</option>
             {catOptions.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
-        <div className="row gap">
+        <div className="toolbar-search">
           <div className="search">
             <Icon name="search" size={18} />
             <input placeholder={t('ပေးချေသူ / မှတ်ချက် ရှာရန်…')} value={q}
               onChange={e => setQ(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') load(); }} />
+            {q && <button className="link-btn" onClick={() => setQ('')} aria-label={t('ဖျက်')}><Icon name="close" size={15} /></button>}
           </div>
           <button className="btn" onClick={load}>{t('ရှာမည်')}</button>
         </div>

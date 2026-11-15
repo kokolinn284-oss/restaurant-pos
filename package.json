@@ -3,12 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "start": "node server/index.js",
     "server:dev": "node --watch server/index.js",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "smoke:offline": "node scripts/smoke-offline.mjs"
   },
   "dependencies": {
     "express": "^4.21.2",
