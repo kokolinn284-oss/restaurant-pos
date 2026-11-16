@@ -1,18 +1,35 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { useI18n } from '../i18n.jsx';
-import { Icon } from '../components/ui.jsx';
+import { Icon, stationLabel } from '../components/ui.jsx';
 
 export default function Kitchen({ data, reload, showToast }) {
-  const { t } = useI18n();
+  const { t, isEn } = useI18n();
+  const stations = data.stations?.length
+    ? data.stations
+    : [
+        { value: 'kitchen', label: t('မီးဖိုချောင်'), label_en: 'Kitchen' },
+        { value: 'bar', label: t('ဘား'), label_en: 'Bar' },
+      ];
   const [rows, setRows] = useState([]);
-  const [station, setStation] = useState('kitchen');
+  const [station, setStation] = useState(stations[0]?.value || 'kitchen');
   const settings = data.settings;
   const direct = settings.printer_mode && settings.printer_mode !== 'browser';
   const bar = station === 'bar';
+  const stationName = stationLabel(stations, station, isEn);
+  const printTitle = String(
+    stations.find((st) => st.value === station)?.label_en || stationName
+  ).toUpperCase();
+  const countOf = (value) => {
+    const found = (data.stationCounts || []).find((c) => c.station === value);
+    if (found) return found.c;
+    if (value === 'kitchen') return data.kitchenCount || 0;
+    if (value === 'bar') return data.barCount || 0;
+    return 0;
+  };
 
   const load = async () => {
-    try { setRows(await api(`/kitchen?station=${station}`)); } catch {}
+    try { setRows(await api(`/kitchen?station=${encodeURIComponent(station)}`)); } catch {}
   };
 
   useEffect(() => {
@@ -48,8 +65,8 @@ export default function Kitchen({ data, reload, showToast }) {
       h2{margin:0 0 4px;font-size:22px}.sub{margin:0 0 10px;border-bottom:1px dashed #000;padding-bottom:8px}
       table{width:100%;border-collapse:collapse}td{padding:7px 0;vertical-align:top;border-bottom:1px dashed #bbb}
       .q{text-align:right;font-weight:bold;white-space:nowrap}.note{font-size:13px;margin-top:2px}</style></head>
-      <body><h2>#${esc(g.header.order_no)}</h2><p class="sub">${bar ? 'BAR' : 'KITCHEN'} · ${esc(where)} · ${new Date().toLocaleTimeString('en-GB')}</p>
-      <table>${lines}</table><p style="margin-top:14px">${bar ? 'BAR' : 'KITCHEN'} TICKET</p>
+      <body><h2>#${esc(g.header.order_no)}</h2><p class="sub">${esc(printTitle)} · ${esc(where)} · ${new Date().toLocaleTimeString('en-GB')}</p>
+      <table>${lines}</table><p style="margin-top:14px">${esc(printTitle)} TICKET</p>
       <script>window.onload=function(){window.print();}</script></body></html>`);
     w.document.close();
   };
@@ -71,10 +88,12 @@ export default function Kitchen({ data, reload, showToast }) {
     <div className="stack">
       <div className="page-head">
         <div>
-          <h2>{bar ? t('ဘား') : t('မီးဖိုချောင်')}</h2>
+          <h2>{stationName}</h2>
           <p className="muted small">{bar
             ? t('ဘား · ဖျော်ရန် စောင့်နေသော ပစ္စည်းများ · အလိုအလျောက် refresh ဖြစ်သည်')
-            : t('ချက်ရန် စောင့်နေသော ဟင်းများ · အလိုအလျောက် refresh ဖြစ်သည်')}</p>
+            : station === 'kitchen'
+              ? t('ချက်ရန် စောင့်နေသော ဟင်းများ · အလိုအလျောက် refresh ဖြစ်သည်')
+              : t('ဤဌာနအတွက် စောင့်နေသော ပစ္စည်းများ · အလိုအလျောက် refresh ဖြစ်သည်')}</p>
         </div>
         <div className="row gap">
           <span className="conn"><i className="dot ok" /> {rows.length} {t('ချက်နေသည်')}</span>
@@ -83,15 +102,23 @@ export default function Kitchen({ data, reload, showToast }) {
       </div>
 
       <div className="tabs">
-        <button className={`tab ${!bar ? 'on' : ''}`} onClick={() => setStation('kitchen')}>
-          <Icon name="fire" size={15} /> {t('မီးဖိုချောင်')} <span className="tab-count">{data.kitchenCount || 0}</span>
-        </button>
-        <button className={`tab ${bar ? 'on' : ''}`} onClick={() => setStation('bar')}>
-          <Icon name="beer" size={15} /> {t('ဘား')} <span className="tab-count">{data.barCount || 0}</span>
-        </button>
+        {stations.map((st) => (
+          <button
+            key={st.value}
+            className={`tab ${station === st.value ? 'on' : ''}`}
+            onClick={() => setStation(st.value)}
+          >
+            <Icon name={st.value === 'bar' ? 'beer' : st.value === 'kitchen' ? 'fire' : 'grid'} size={15} />
+            {' '}{stationLabel(stations, st.value, isEn)} <span className="tab-count">{countOf(st.value)}</span>
+          </button>
+        ))}
       </div>
 
-      {rows.length === 0 && <div className="empty">{bar ? t('ဖျော်ရန် မရှိသေးပါ') : t('ချက်ရန် မရှိသေးပါ')}</div>}
+      {rows.length === 0 && <div className="empty">{bar
+        ? t('ဖျော်ရန် မရှိသေးပါ')
+        : station === 'kitchen'
+          ? t('ချက်ရန် မရှိသေးပါ')
+          : t('စောင့်နေသည် မရှိသေးပါ')}</div>}
 
       <div className="kds-grid">
         {Object.values(groups).map(g => (

@@ -24,6 +24,63 @@ function normalizeTs(value) {
   return m ? `${m[1]} ${m[2]}:${m[3] || '00'}` : null;
 }
 
+const DEFAULT_STATIONS = [
+  { value: 'kitchen', label: 'မီးဖိုချောင်', label_en: 'Kitchen' },
+  { value: 'bar', label: 'ဘား', label_en: 'Bar' },
+];
+const DEFAULT_UNITS = ['ပွဲ', 'ခွက်', 'ဘူး', 'ပုလင်း', 'ပန်းကန်'];
+
+function readSettingsList(key) {
+  try {
+    const v = JSON.parse(getSettings()[key] || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSettingsList(key, list) {
+  setSettings({ [key]: JSON.stringify(list) });
+}
+
+function getStations() {
+  const custom = readSettingsList('custom_stations')
+    .map(st => (typeof st === 'string' ? { value: st, label: st } : st))
+    .filter(st => st && st.value && !DEFAULT_STATIONS.some(d => d.value === st.value));
+  return [...DEFAULT_STATIONS, ...custom];
+}
+
+function resolveStation(input) {
+  const raw = String(input ?? '').trim();
+  if (!raw) return 'kitchen';
+  const low = raw.toLowerCase();
+  const found = getStations().find(st =>
+    String(st.value).toLowerCase() === low ||
+    String(st.label || '').toLowerCase() === low ||
+    String(st.label_en || '').toLowerCase() === low
+  );
+  return found ? found.value : null;
+}
+
+function stationTitle(value) {
+  const st = getStations().find(s => s.value === value);
+  return String(st?.label_en || st?.label || value || 'KITCHEN').toUpperCase();
+}
+
+function getUnits() {
+  const seen = new Set();
+  const out = [];
+  const saved = readSettingsList('custom_units').map(u => (typeof u === 'string' ? u : u?.name));
+  const used = db.prepare("SELECT DISTINCT unit FROM menu_items WHERE TRIM(COALESCE(unit, '')) != ''").all().map(r => r.unit);
+  for (const u of [...DEFAULT_UNITS, ...saved, ...used]) {
+    const name = String(u || '').trim();
+    if (!name || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    out.push(name);
+  }
+  return out;
+}
+
 app.use(express.json({ limit: '10mb' }));
 
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
@@ -118,7 +175,7 @@ app.post('/api/auth/logout', (req, res) => {
 const WAITER_DENY = [
   ['*', /^\/(shifts|reports|settings|backup|staff|credits|expenses|expense-categories)(\/|$)/],
   ['POST', /^\/orders\/\d+\/(pay|void)$/],
-  ['POST|PATCH|DELETE', /^\/(items|categories|inventory|promotions|tables)(\/|$)/]
+  ['POST|PATCH|DELETE', /^\/(items|categories|inventory|promotions|tables|stations|menu-units)(\/|$)/]
 ];
 const CASHIER_DENY = [
   ['*', /^\/(backup|staff)(\/|$)/],
@@ -136,7 +193,7 @@ function canAccess(role, method, reqPath) {
   return true;
 }
 
-const PUBLIC_API = new Set(['/health', '/auth/login', '/shop', '/events', '/catalog/menu', '/catalog/tables', '/catalog/order']);
+const PUBLIC_API = new Set(['/health', '/auth/login', '/shop', '/events', '/catalog/menu', '/catalog/tables', '/catalog/order', '/catalog/orders']);
 
 app.get('/api/catalog/menu', (req, res) => {
   const settings = getSettings();
@@ -152,7 +209,8 @@ app.get('/api/catalog/menu', (req, res) => {
       service_rate: Number(settings.service_rate || 0)
     },
     categories,
-    items
+    items,
+    stations: getStations()
   });
 });
 
@@ -185,11 +243,12 @@ app.post('/api/catalog/order', (req, res) => {
   try {
     const orderNo = nextOrderNo();
     const cleanNote = note ? `[Online Order] ${note}` : '[Online Order]';
-    
+    const publicToken = crypto.randomBytes(16).toString('hex');
+
     const r = db.prepare(`
-      INSERT INTO orders (order_no, table_id, type, guests, staff_id, customer_name, customer_phone, source, note)
-      VALUES (?, ?, ?, ?, NULL, ?, ?, 'online', ?)
-    `).run(orderNo, tableId ? Number(tableId) : null, type, 1, customerName || 'အွန်လိုင်း ဖောက်သည်', customerPhone || '', cleanNote);
+      INSERT INTO orders (order_no, table_id, type, guests, staff_id, customer_name, customer_phone, source, note, public_token)
+      VALUES (?, ?, ?, ?, NULL, ?, ?, 'online', ?, ?)
+    `).run(orderNo, tableId ? Number(tableId) : null, type, 1, customerName || 'အွန်လိုင်း ဖောက်သည်', customerPhone || '', cleanNote, publicToken);
     
     const orderId = r.lastInsertRowid;
     const insItem = db.prepare(`
@@ -225,6 +284,7 @@ app.post('/api/catalog/order', (req, res) => {
       ok: true,
       orderId,
       orderNo,
+      token: publicToken,
       subtotal,
       total: subtotal,
       type,
@@ -235,6 +295,45 @@ app.post('/api/catalog/order', (req, res) => {
     db.exec('ROLLBACK');
     res.status(500).json({ error: 'အော်ဒါတင်ခြင်း မအောင်မြင်ပါ: ' + e.message });
   }
+});
+
+function customerOrderState(order, items) {
+  if (order.status === 'void') return 'cancelled';
+  if (order.status === 'paid') return 'completed';
+  if (!order.confirmed_at) return 'pending';
+  const active = items.filter(i => i.status !== 'cancelled');
+  if (active.length > 0 && active.every(i => i.status === 'served')) return 'served';
+  if (active.some(i => i.status === 'cooking')) return 'preparing';
+  return 'confirmed';
+}
+
+app.get('/api/catalog/orders', (req, res) => {
+  const tokens = String(req.query.tokens || '')
+    .split(',').map(s => s.trim()).filter(s => /^[a-f0-9]{32}$/.test(s)).slice(0, 30);
+  if (tokens.length === 0) return res.json([]);
+  const rows = db.prepare(`
+    SELECT o.id, o.order_no, o.type, o.status, o.total, o.confirmed_at, o.opened_at, o.closed_at,
+           o.public_token, t.name AS table_name
+    FROM orders o LEFT JOIN tables t ON t.id = o.table_id
+    WHERE o.public_token IN (${tokens.map(() => '?').join(',')})
+    ORDER BY o.id DESC
+  `).all(...tokens);
+  const itemStmt = db.prepare('SELECT name, price, qty, note, status FROM order_items WHERE order_id = ? ORDER BY id');
+  res.json(rows.map(o => {
+    const items = itemStmt.all(o.id);
+    return {
+      id: o.id,
+      token: o.public_token,
+      orderNo: o.order_no,
+      type: o.type,
+      tableName: o.table_name || '',
+      total: o.total,
+      openedAt: o.opened_at,
+      closedAt: o.closed_at,
+      state: customerOrderState(o, items),
+      items: items.map(i => ({ name: i.name, price: i.price, qty: i.qty, note: i.note, status: i.status }))
+    };
+  }));
 });
 
 app.use('/api', (req, res, next) => {
@@ -261,13 +360,17 @@ app.get('/api/bootstrap', (req, res) => {
     settings: getSettings(),
     categories: db.prepare('SELECT * FROM categories ORDER BY sort, id').all(),
     items: db.prepare('SELECT * FROM menu_items ORDER BY sort, id').all(),
+    stations: getStations(),
+    units: getUnits(),
     tables: tableStatus(),
     staff: db.prepare('SELECT id, name, role, active FROM staff ORDER BY id').all(),
     customers: db.prepare('SELECT * FROM customers ORDER BY id DESC').all(),
     openOrders: db.prepare(`
-      SELECT o.id, o.order_no, o.table_id, o.type, o.total, o.opened_at, o.guests, o.source, o.customer_name, o.customer_phone,
+      SELECT o.id, o.order_no, o.table_id, o.type, o.total, o.opened_at, o.guests, o.source, o.confirmed_at,
+             o.customer_name, o.customer_phone, t.name AS table_name,
              (SELECT COUNT(*) FROM order_items i WHERE i.order_id = o.id AND i.status != 'cancelled') AS item_count
-      FROM orders o WHERE o.status = 'open' ORDER BY o.opened_at
+      FROM orders o LEFT JOIN tables t ON t.id = o.table_id
+      WHERE o.status = 'open' ORDER BY o.opened_at
     `).all(),
     reservations: db.prepare(`
       SELECT r.*, t.name AS table_name FROM reservations r LEFT JOIN tables t ON t.id = r.table_id
@@ -280,6 +383,14 @@ app.get('/api/bootstrap', (req, res) => {
     lowStockCount: db.prepare('SELECT COUNT(*) AS c FROM inventory_items WHERE qty <= reorder_level').get().c,
     kitchenCount: db.prepare("SELECT COUNT(*) AS c FROM order_items i LEFT JOIN menu_items m ON m.id = i.item_id WHERE i.status = 'cooking' AND COALESCE(m.station, 'kitchen') = 'kitchen'").get().c,
     barCount: db.prepare("SELECT COUNT(*) AS c FROM order_items i LEFT JOIN menu_items m ON m.id = i.item_id WHERE i.status = 'cooking' AND m.station = 'bar'").get().c,
+    stationCounts: db.prepare(`
+      SELECT COALESCE(m.station, 'kitchen') AS station, COUNT(*) AS c
+      FROM order_items i
+      JOIN orders o ON o.id = i.order_id AND o.status = 'open'
+      LEFT JOIN menu_items m ON m.id = i.item_id
+      WHERE i.status = 'cooking'
+      GROUP BY COALESCE(m.station, 'kitchen')
+    `).all(),
     me: req.staff
   });
 });
@@ -373,9 +484,11 @@ app.delete('/api/categories/:id', (req, res) => {
 app.post('/api/items', (req, res) => {
   const { category_id, name, price, cost, unit, available, sort, is_alcohol = 0, station = 'kitchen', image = '', code = '' } = req.body;
   if (!category_id || !name || price == null) return res.status(400).json({ error: 'အချက်အလက် မပြည့်စုံပါ' });
+  const stationValue = resolveStation(station);
+  if (!stationValue) return res.status(400).json({ error: 'ဌာန မမှန်ကန်ပါ' });
   const r = db.prepare('INSERT INTO menu_items (category_id, name, price, cost, unit, available, sort, is_alcohol, station, image, code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(Number(category_id), name, Math.round(Number(price)), Math.round(Number(cost) || 0), unit || '', available ? 1 : 0, Number(sort) || 0,
-      is_alcohol ? 1 : 0, station === 'bar' ? 'bar' : 'kitchen', image || '', code || '');
+      is_alcohol ? 1 : 0, stationValue, image || '', code || '');
   broadcast('menu');
   res.json({ id: r.lastInsertRowid });
 });
@@ -385,6 +498,8 @@ app.patch('/api/items/:id', (req, res) => {
   const cur = db.prepare('SELECT * FROM menu_items WHERE id = ?').get(id);
   if (!cur) return res.status(404).json({ error: 'မတွေ့ပါ' });
   const b = req.body;
+  const stationValue = resolveStation(b.station ?? cur.station);
+  if (!stationValue) return res.status(400).json({ error: 'ဌာန မမှန်ကန်ပါ' });
   db.prepare(`UPDATE menu_items SET category_id=?, name=?, price=?, cost=?, unit=?, available=?, sort=?, is_alcohol=?, station=?, image=?, code=? WHERE id=?`)
     .run(
       Number(b.category_id ?? cur.category_id),
@@ -395,7 +510,7 @@ app.patch('/api/items/:id', (req, res) => {
       (b.available ?? cur.available) ? 1 : 0,
       Number(b.sort ?? cur.sort),
       (b.is_alcohol ?? cur.is_alcohol) ? 1 : 0,
-      (b.station ?? cur.station) === 'bar' ? 'bar' : 'kitchen',
+      stationValue,
       b.image !== undefined ? b.image : (cur.image || ''),
       b.code !== undefined ? b.code : (cur.code || ''),
       id
@@ -498,7 +613,7 @@ app.post('/api/items/bulk-import', (req, res) => {
       const unit = it.unit || 'ပွဲ';
       const available = it.available !== undefined ? (it.available ? 1 : 0) : 1;
       const is_alcohol = it.is_alcohol ? 1 : 0;
-      const station = it.station === 'bar' ? 'bar' : 'kitchen';
+      const station = resolveStation(it.station) || 'kitchen';
       const image = it.image || '';
       const code = it.code || '';
 
@@ -822,25 +937,63 @@ function recipeShortages(rows) {
   return warnings;
 }
 
-app.post('/api/orders/:id/send-kitchen', (req, res) => {
-  const id = Number(req.params.id);
-  const rows = db.prepare("SELECT * FROM order_items WHERE order_id = ? AND status = 'new' AND stock_deducted = 0").all(id);
+function sendNewItemsToKitchen(orderId) {
+  const rows = db.prepare("SELECT * FROM order_items WHERE order_id = ? AND status = 'new' AND stock_deducted = 0").all(orderId);
   const warnings = recipeShortages(rows);
   db.exec('BEGIN');
   try {
     for (const it of rows) {
-      applyRecipe(it.item_id, id, it.qty);
+      applyRecipe(it.item_id, orderId, it.qty);
       db.prepare('UPDATE order_items SET stock_deducted = 1 WHERE id = ?').run(it.id);
     }
-    db.prepare("UPDATE order_items SET status = 'cooking', sent_at = datetime('now','localtime') WHERE order_id = ? AND status = 'new'").run(id);
+    db.prepare("UPDATE order_items SET status = 'cooking', sent_at = datetime('now','localtime') WHERE order_id = ? AND status = 'new'").run(orderId);
     db.exec('COMMIT');
   } catch (e) {
     db.exec('ROLLBACK');
+    throw e;
+  }
+  return warnings;
+}
+
+app.post('/api/orders/:id/send-kitchen', (req, res) => {
+  const id = Number(req.params.id);
+  let warnings;
+  try {
+    warnings = sendNewItemsToKitchen(id);
+  } catch (e) {
     return res.status(500).json({ error: e.message });
   }
   broadcast('kitchen');
   broadcast('orders', { id });
   broadcast('inventory');
+  res.json({ ok: true, warnings });
+});
+
+app.post('/api/orders/:id/confirm', (req, res) => {
+  const id = Number(req.params.id);
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
+  if (!order) return res.status(404).json({ error: 'မတွေ့ပါ' });
+  if (order.status !== 'open') return res.status(400).json({ error: 'ဤအော်ဒါကို အတည်ပြု၍ မရနိုင်ပါ' });
+  let warnings = [];
+  let sent = false;
+  try {
+    const hasNew = db.prepare("SELECT 1 FROM order_items WHERE order_id = ? AND status = 'new' LIMIT 1").get(id);
+    if (hasNew) {
+      warnings = sendNewItemsToKitchen(id);
+      sent = true;
+    }
+    if (!order.confirmed_at) {
+      db.prepare("UPDATE orders SET confirmed_at = datetime('now','localtime') WHERE id = ?").run(id);
+    }
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+  broadcast('orders', { id });
+  broadcast('tables');
+  if (sent) {
+    broadcast('kitchen');
+    broadcast('inventory');
+  }
   res.json({ ok: true, warnings });
 });
 
@@ -1025,7 +1178,8 @@ app.post('/api/orders/:id/void', (req, res) => {
 
 /* ---------------- kitchen ---------------- */
 app.get('/api/kitchen', (req, res) => {
-  const station = req.query.station === 'bar' ? 'bar' : 'kitchen';
+  const requested = String(req.query.station || '');
+  const station = getStations().some(st => st.value === requested) ? requested : 'kitchen';
   res.json(db.prepare(`
     SELECT i.id, i.order_id, i.name, i.qty, i.note, i.status, i.sent_at,
            COALESCE(m.is_alcohol, 0) AS is_alcohol, COALESCE(m.station, 'kitchen') AS station,
@@ -1585,7 +1739,7 @@ function buildKitchenText(orderId, station = 'kitchen') {
   const o = orderWithItems(orderId);
   if (!o) throw new Error('Order မတွေ့ပါ');
   const table = o.table_id ? db.prepare('SELECT name FROM tables WHERE id = ?').get(o.table_id)?.name : '';
-  const rows = [`${station === 'bar' ? 'BAR' : 'KITCHEN'} TICKET`, '-'.repeat(42), `#${o.order_no}  ${table || o.type}`, new Date().toLocaleString('en-GB'), '-'.repeat(42)];
+  const rows = [`${stationTitle(station)} TICKET`, '-'.repeat(42), `#${o.order_no}  ${table || o.type}`, new Date().toLocaleString('en-GB'), '-'.repeat(42)];
   for (const it of o.items) {
     if (it.status !== 'cooking') continue;
     if ((it.station || 'kitchen') !== station) continue;
@@ -1643,7 +1797,7 @@ app.post('/api/print/receipt/:id', async (req, res) => {
 
 app.post('/api/print/kitchen/:id', async (req, res) => {
   try {
-    const station = req.body?.station === 'bar' ? 'bar' : 'kitchen';
+    const station = resolveStation(req.body?.station) || 'kitchen';
     await runPrinter(buildKitchenText(Number(req.params.id), station));
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
@@ -1660,6 +1814,35 @@ app.post('/api/print/test', async (req, res) => {
 /* ---------------- settings ---------------- */
 app.get('/api/settings', (req, res) => res.json(getSettings()));
 app.patch('/api/settings', (req, res) => { setSettings(req.body || {}); broadcast('settings'); res.json({ ok: true }); });
+
+/* ---------------- stations & units ---------------- */
+app.post('/api/stations', (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'ဌာနအမည် ထည့်ပါ' });
+  const low = name.toLowerCase();
+  const exists = getStations().some(st =>
+    [st.value, st.label, st.label_en].filter(Boolean).some(v => String(v).toLowerCase() === low)
+  );
+  if (exists) return res.status(409).json({ error: 'ဒီဌာန ရှိပြီးသားပါ' });
+  const custom = readSettingsList('custom_stations');
+  custom.push({ value: name, label: name });
+  saveSettingsList('custom_stations', custom);
+  broadcast('settings');
+  res.json({ value: name, label: name });
+});
+
+app.post('/api/menu-units', (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'ယူနစ်အမည် ထည့်ပါ' });
+  if (getUnits().some(u => u.toLowerCase() === name.toLowerCase())) {
+    return res.status(409).json({ error: 'ဒီယူနစ် ရှိပြီးသားပါ' });
+  }
+  const custom = readSettingsList('custom_units');
+  custom.push(name);
+  saveSettingsList('custom_units', custom);
+  broadcast('settings');
+  res.json({ value: name });
+});
 
 /* ---------------- static ---------------- */
 const dist = path.resolve(process.cwd(), 'dist');

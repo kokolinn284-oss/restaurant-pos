@@ -6,9 +6,20 @@
     <meta name="theme-color" content="#0e9f6e" />
     <title>စည်တော်ကြီး စားသောက်ဆိုင် · POS</title>
     <link rel="manifest" href="/manifest.webmanifest" />
+    <script>
+      (function () {
+        var isCatalog = location.hash.indexOf('catalog') !== -1 || location.search.indexOf('catalog') !== -1;
+        if (!isCatalog) return;
+        var link = document.querySelector('link[rel="manifest"]');
+        if (link) link.setAttribute('href', '/manifest-catalog.webmanifest');
+      })();
+    </script>
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="icon" href="/icon-192.png" sizes="192x192" type="image/png" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="စည်တော်ကြီး" />
   </head>
   <body>
     <div id="root"></div>

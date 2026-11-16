@@ -1,17 +1,29 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { getFoodImage } from '../foodPresets.js';
-import { Icon, ThemeToggle, LangToggle, ModalFrame } from '../components/ui.jsx';
+import { Icon, ThemeToggle, LangToggle, ModalFrame, stationLabel } from '../components/ui.jsx';
 import { useI18n } from '../i18n.jsx';
 
 const QUICK_NOTES = [
-  'အစပ်လျှော့ပါ',
-  'အစပ်ပိုထည့်ပါ',
-  'ဆီနည်းပါ',
-  'အချိုမှုန့်မထည့်ပါနှင့်',
-  'ကြက်သွန်ဖြူများများ',
-  'အသီးအရွက်များများ',
-  'ပါဆယ်သီးသန့်ထုတ်ပေးပါ'
+  { my: 'အစပ်လျှော့ပါ', en: 'Less spicy' },
+  { my: 'အစပ်ပိုထည့်ပါ', en: 'Extra spicy' },
+  { my: 'ဆီနည်းပါ', en: 'Less oil' },
+  { my: 'အချိုမှုန့်မထည့်ပါနှင့်', en: 'No MSG' },
+  { my: 'ကြက်သွန်ဖြူများများ', en: 'Extra garlic' },
+  { my: 'အသီးအရွက်များများ', en: 'Extra veggies' },
+  { my: 'ပါဆယ်သီးသန့်ထုတ်ပေးပါ', en: 'Pack separately' }
 ];
+
+const CAT_TONES = ['tone-amber', 'tone-orange', 'tone-rose', 'tone-emerald', 'tone-sky', 'tone-indigo', 'tone-violet', 'tone-blue'];
+
+const CUSTOMER_ORDERS_KEY = 'customer_orders';
+const readSavedOrders = () => {
+  try {
+    const list = JSON.parse(localStorage.getItem(CUSTOMER_ORDERS_KEY) || '[]');
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+};
 
 export default function CustomerCatalog({ onBackToPos = null }) {
   const { t, isEn } = useI18n();
@@ -20,6 +32,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
   const [categories, setCategories] = useState([]);
   const [items, setItems] = useState([]);
   const [tables, setTables] = useState([]);
+  const [stations, setStations] = useState([]);
 
   // Filter & Search
   const [selectedCat, setSelectedCat] = useState('all');
@@ -48,6 +61,20 @@ export default function CustomerCatalog({ onBackToPos = null }) {
   const [detailQty, setDetailQty] = useState(1);
   const [detailNote, setDetailNote] = useState('');
   const [tableModalOpen, setTableModalOpen] = useState(false);
+  const [installEvt, setInstallEvt] = useState(null);
+  const [installDismissed, setInstallDismissed] = useState(false);
+  const [installHelpOpen, setInstallHelpOpen] = useState(false);
+  const [orderDetail, setOrderDetail] = useState(null);
+  const [myOrders, setMyOrders] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('customer_orders') || '[]'); } catch { return []; }
+  });
+  const [myOrdersOpen, setMyOrdersOpen] = useState(false);
+
+  const isStandalone = typeof window !== 'undefined' &&
+    (window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true);
+  const isIos = typeof navigator !== 'undefined' &&
+    (/iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+  const showInstallBanner = !isStandalone && !installDismissed && (!!installEvt || isIos);
 
   // Submitted Order Tracking state
   const [activeOrder, setActiveOrder] = useState(() => {
@@ -67,6 +94,69 @@ export default function CustomerCatalog({ onBackToPos = null }) {
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(''), 2500);
   };
+  const L = (my, en) => (isEn ? en : my);
+
+  const orderStateLabel = (state) => ({
+    pending: L('အတည်ပြုရန် စောင့်နေသည်', 'Awaiting confirmation'),
+    confirmed: L('အတည်ပြုပြီး', 'Confirmed'),
+    preparing: L('ချက်ပြုတ်နေသည်', 'Preparing'),
+    served: L('ကျွေးပြီး', 'Served'),
+    completed: L('ပြီးစီးပြီး', 'Completed'),
+    cancelled: L('ပယ်ဖျက်ပြီး', 'Cancelled')
+  }[state] || L('အတည်ပြုရန် စောင့်နေသည်', 'Awaiting confirmation'));
+
+  const refreshMyOrders = async () => {
+    const saved = readSavedOrders();
+    if (!saved.length) { setMyOrders([]); return; }
+    setMyOrders(saved);
+    const tokens = saved.map(o => o.token).filter(Boolean);
+    if (!tokens.length) return;
+    try {
+      const res = await fetch(`/api/catalog/orders?tokens=${tokens.join(',')}`);
+      if (!res.ok) return;
+      const live = await res.json();
+      const byToken = new Map(live.map(o => [o.token, o]));
+      const merged = saved.map(o => {
+        const l = byToken.get(o.token);
+        if (!l) return o;
+        const items = l.items?.length
+          ? l.items.map((it, i) => ({ ...it, id: `${o.id}_${i}` }))
+          : o.items;
+        return { ...o, state: l.state, total: l.total, tableName: l.tableName || o.tableName, closedAt: l.closedAt, items };
+      });
+      setMyOrders(merged);
+      localStorage.setItem(CUSTOMER_ORDERS_KEY, JSON.stringify(merged));
+    } catch {}
+  };
+
+  const promptInstall = async () => {
+    if (!installEvt) {
+      setInstallHelpOpen(true);
+      return;
+    }
+    installEvt.prompt();
+    try { await installEvt.userChoice; } catch {}
+    setInstallEvt(null);
+  };
+
+  // PWA install + catalog-specific manifest (opens the menu when launched)
+  useEffect(() => {
+    const onPrompt = (e) => { e.preventDefault(); setInstallEvt(e); };
+    const onInstalled = () => {
+      setInstallEvt(null);
+      showToast(t('App အဖြစ် ထည့်သွင်းပြီးပါပြီ'));
+    };
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    window.addEventListener('appinstalled', onInstalled);
+    const link = document.querySelector('link[rel="manifest"]');
+    const prevHref = link?.getAttribute('href');
+    if (link) link.setAttribute('href', '/manifest-catalog.webmanifest');
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onPrompt);
+      window.removeEventListener('appinstalled', onInstalled);
+      if (link && prevHref) link.setAttribute('href', prevHref);
+    };
+  }, []);
 
   // Save tray to session
   useEffect(() => {
@@ -92,6 +182,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
       if (menuRes.shop) setShop(menuRes.shop);
       if (menuRes.categories) setCategories(menuRes.categories);
       if (menuRes.items) setItems(menuRes.items);
+      if (Array.isArray(menuRes.stations)) setStations(menuRes.stations);
       if (Array.isArray(tableRes)) setTables(tableRes);
       setLoading(false);
     } catch (e) {
@@ -102,6 +193,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
 
   useEffect(() => {
     loadData();
+    refreshMyOrders();
 
     // Check URL params for pre-selected table (?table=2 or #/catalog?table=2)
     try {
@@ -121,10 +213,15 @@ export default function CustomerCatalog({ onBackToPos = null }) {
       es = new EventSource('/api/events');
       es.onmessage = () => {
         loadData();
+        refreshMyOrders();
       };
     } catch {}
     return () => { if (es) es.close(); };
   }, []);
+
+  useEffect(() => {
+    if (myOrdersOpen) refreshMyOrders();
+  }, [myOrdersOpen]);
 
   // Category map
   const catMap = useMemo(() => {
@@ -181,7 +278,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
         note
       }];
     });
-    showToast(`✓ "${item.name}" ဗန်းထဲထည့်ပြီးပါပြီ`);
+    showToast(`✓ ${L(`"${item.name}" ဗန်းထဲထည့်ပြီးပါပြီ`, `"${item.name}" added to tray`)}`);
   };
 
   const updateTrayQty = (idx, delta) => {
@@ -220,16 +317,16 @@ export default function CustomerCatalog({ onBackToPos = null }) {
   // Submit Order
   const submitOrder = async () => {
     if (tray.length === 0) {
-      showToast('⚠️ ဗန်းထဲတွင် မည်သည့်ဟင်းပွဲမှ မရှိသေးပါ');
+      showToast(L('⚠️ ဗန်းထဲတွင် မည်သည့်ဟင်းပွဲမှ မရှိသေးပါ', '⚠️ Your tray is empty'));
       return;
     }
     if (diningType === 'dine_in' && !selectedTableId) {
       setTableModalOpen(true);
-      showToast('⚠️ စားပွဲနံပါတ် ရွေးချယ်ပေးပါ');
+      showToast(L('⚠️ စားပွဲနံပါတ် ရွေးချယ်ပေးပါ', '⚠️ Please choose a table'));
       return;
     }
     if (diningType === 'takeaway' && !customerName.trim() && !customerPhone.trim()) {
-      showToast('⚠️ ပါဆယ်မှာယူရန် ဖောက်သည်အမည် သို့မဟုတ် ဖုန်းနံပါတ် ဖြည့်ပေးပါ');
+      showToast(L('⚠️ ပါဆယ်မှာယူရန် ဖောက်သည်အမည် သို့မဟုတ် ဖုန်းနံပါတ် ဖြည့်ပေးပါ', '⚠️ Add a name or phone number for takeaway'));
       return;
     }
 
@@ -259,37 +356,64 @@ export default function CustomerCatalog({ onBackToPos = null }) {
       if (!res.ok) throw new Error(data.error || 'အော်ဒါတင်ခြင်း မအောင်မြင်ပါ');
 
       // Order created!
-      setActiveOrder({
-        orderId: data.orderId,
+      const now = new Date();
+      const placed = {
+        token: data.token,
+        id: data.orderId,
         orderNo: data.orderNo,
         type: data.type,
         tableName: data.tableName || (tables.find(t => String(t.id) === String(selectedTableId))?.name || ''),
-        customerName: customerName.trim(),
-        customerPhone: customerPhone.trim(),
         total: data.total,
         itemCount: data.itemCount,
+        items: tray.map(it => ({ id: it.id, name: it.name, price: it.price, qty: it.qty, note: it.note || '' })),
+        time: now.toLocaleTimeString('my-MM', { hour: '2-digit', minute: '2-digit' }),
+        date: now.toLocaleDateString('my-MM'),
+        state: 'pending'
+      };
+      setActiveOrder({
+        orderId: placed.id,
+        orderNo: placed.orderNo,
+        type: placed.type,
+        tableName: placed.tableName,
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+        total: placed.total,
+        itemCount: placed.itemCount,
         items: [...tray],
-        time: new Date().toLocaleTimeString('my-MM', { hour: '2-digit', minute: '2-digit' }),
-        date: new Date().toLocaleDateString('my-MM')
+        time: placed.time,
+        date: placed.date,
+        state: 'pending'
       });
+
+      const savedNext = [placed, ...readSavedOrders().filter(o => o.id !== placed.id && o.token !== placed.token)].slice(0, 20);
+      localStorage.setItem(CUSTOMER_ORDERS_KEY, JSON.stringify(savedNext));
+      setMyOrders(savedNext);
 
       clearTray();
       setTrayOpen(false);
-      showToast('🎉 အော်ဒါတင်ခြင်း အောင်မြင်ပါသည်!');
+      showToast(L('🎉 အော်ဒါတင်ခြင်း အောင်မြင်ပါသည်!', '🎉 Order placed successfully!'));
+      refreshMyOrders();
     } catch (e) {
-      alert(e.message || 'Error placing order');
+      showToast(`⚠️ ${e.message || L('အော်ဒါတင်ခြင်း မအောင်မြင်ပါ', 'Could not place order')}`);
     } finally {
       setSubmitting(false);
     }
   };
 
   const selectedTableObj = tables.find(t => String(t.id) === String(selectedTableId));
+  const shopTitle = isEn
+    ? (shop.name_en || shop.name || 'Sintawgyi Restaurant')
+    : (shop.name || 'စည်တော်ကြီး စားသောက်ဆိုင်');
+  const shopSub = isEn ? (shop.name || '') : (shop.name_en || '');
 
   if (loading) {
     return (
       <div className="catalog-loading-screen">
+        <div className="catalog-loading-logo">စည်</div>
         <div className="spinner" />
-        <div className="mt-12 semibold">မီနူး ကတ်တလောက် ရယူနေပါသည်…</div>
+        <div className="catalog-loading-text">
+          {L('မီနူး ကတ်တလောက် ရယူနေပါသည်…', 'Loading the menu…')}
+        </div>
       </div>
     );
   }
@@ -301,12 +425,12 @@ export default function CustomerCatalog({ onBackToPos = null }) {
         <div className="catalog-header-inner">
           <div className="catalog-brand-info">
             <div className="catalog-logo-badge">စည်</div>
-            <div>
-              <h1 className="catalog-brand-title">{shop.name || 'စည်တော်ကြီး စားသောက်ဆိုင်'}</h1>
+            <div className="catalog-brand-text">
+              <h1 className="catalog-brand-title">{shopTitle}</h1>
               <div className="catalog-brand-subtitle">
-                <span>{shop.name_en || 'Sintawgyi Restaurant'}</span>
-                <span className="dot-sep desktop-only">·</span>
-                <span className="live-status-chip desktop-only">
+                {shopSub && <span className="cbs-name">{shopSub}</span>}
+                {shopSub && <span className="dot-sep desktop-only">·</span>}
+                <span className="live-status-chip">
                   <span className="pulse-dot" /> {isEn ? 'Open' : 'ဖွင့်ထား'}
                 </span>
               </div>
@@ -321,9 +445,9 @@ export default function CustomerCatalog({ onBackToPos = null }) {
               title={t('စားပွဲရွေးရန်')}
             >
               <Icon name={diningType === 'dine_in' ? 'table' : 'box'} size={16} />
-              <span>
+              <span className="tsb-label">
                 {diningType === 'dine_in'
-                  ? (selectedTableObj ? selectedTableObj.name : t('စားပွဲရွေးရန်'))
+                  ? (selectedTableObj ? selectedTableObj.name : L('စားပွဲရွေးရန်', 'Select table'))
                   : t('ပါဆယ်')}
               </span>
               <Icon name="down" size={12} />
@@ -352,7 +476,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
               className="catalog-search-input"
             />
             {search && (
-              <button className="clear-search" onClick={() => setSearch('')}>
+              <button className="clear-search" onClick={() => setSearch('')} aria-label={L('ရှာဖွေမှု ရှင်းမည်', 'Clear search')}>
                 <Icon name="close" size={14} />
               </button>
             )}
@@ -369,7 +493,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
               className={`filter-chip ${dietary === 'non_alcohol' ? 'active' : ''}`}
               onClick={() => setDietary('non_alcohol')}
             >
-              {isEn ? 'Food / Drinks' : 'အစားအသောက်'}
+              {isEn ? 'Food & Drinks' : 'အစားအသောက်'}
             </button>
             <button
               className={`filter-chip ${dietary === 'alcohol' ? 'active' : ''}`}
@@ -383,19 +507,19 @@ export default function CustomerCatalog({ onBackToPos = null }) {
         {/* Sticky Category Tabs Bar */}
         <div className="catalog-category-bar">
           <button
-            className={`cat-pill ${selectedCat === 'all' ? 'active' : ''}`}
+            className={`cat-pill tone-cyan ${selectedCat === 'all' ? 'active' : ''}`}
             onClick={() => setSelectedCat('all')}
           >
             <span>{t('အားလုံး')}</span>
             <span className="cat-count">{items.length}</span>
           </button>
-          {categories.map(cat => {
+          {categories.map((cat, idx) => {
             const count = items.filter(i => i.category_id === cat.id).length;
             const cName = isEn ? (cat.name_en || cat.name) : (cat.name || cat.name_en);
             return (
               <button
                 key={cat.id}
-                className={`cat-pill ${String(selectedCat) === String(cat.id) ? 'active' : ''}`}
+                className={`cat-pill ${CAT_TONES[idx % CAT_TONES.length]} ${String(selectedCat) === String(cat.id) ? 'active' : ''}`}
                 onClick={() => setSelectedCat(cat.id)}
               >
                 <span>{cName}</span>
@@ -406,23 +530,63 @@ export default function CustomerCatalog({ onBackToPos = null }) {
         </div>
       </header>
 
+      {showInstallBanner && (
+        <div className="catalog-install-banner">
+          <span className="cib-icon"><Icon name="download" size={17} /></span>
+          <div className="cib-text">
+            <strong>{t('ဖုန်းထဲမှာ App အဖြစ် သိမ်းထားပါ')}</strong>
+            <span>{t('မီနူးကို App လို အမြန်ဖွင့်နိုင်ပါသည်')}</span>
+          </div>
+          <button className="btn sm cib-btn" onClick={promptInstall}>
+            {t('App ထည့်သွင်းရန်')}
+          </button>
+          <button className="cib-close" onClick={() => setInstallDismissed(true)} aria-label="close">
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Main Catalog Menu Grid */}
       <main className="catalog-main">
+        {myOrders.length > 0 && (
+          <button type="button" className="my-orders-bar" onClick={() => setMyOrdersOpen(true)}>
+            <span className="mob-icon"><Icon name="receipt" size={17} /></span>
+            <span className="mob-text">
+              <strong>{L('ကျွန်ုပ်၏ အော်ဒါများ', 'My orders')}</strong>
+              <small>{myOrders.length} {L('ခု', 'orders')}</small>
+            </span>
+            <span className={`mos-status ${myOrders[0].state || 'pending'}`}>{orderStateLabel(myOrders[0].state)}</span>
+            <Icon name="chevronRight" size={16} className="mob-go" />
+          </button>
+        )}
+
         {activeOrder && (
           <div className="active-order-banner">
             <div className="aob-left">
               <span className="aob-icon">🎉</span>
               <div>
-                <strong>အော်ဒါ #{activeOrder.orderNo} တင်ပြီး</strong>
+                <strong>{L(`အော်ဒါ #${activeOrder.orderNo} တင်ပြီး`, `Order #${activeOrder.orderNo} placed`)}</strong>
                 <p>
-                  {activeOrder.tableName ? `${activeOrder.tableName} · ` : 'ပါဆယ် · '}
-                  ဟင်း {activeOrder.items?.length || 0} မျိုး ({activeOrder.total?.toLocaleString()} Ks)
+                  {activeOrder.tableName ? `${activeOrder.tableName} · ` : `${L('ပါဆယ်', 'Takeaway')} · `}
+                  {(() => {
+                    const n = activeOrder.itemCount || activeOrder.items?.length || 0;
+                    return L(`ဟင်း ${n} မျိုး`, `${n} item${n > 1 ? 's' : ''}`);
+                  })()}
+                  {' · '}{activeOrder.total?.toLocaleString()} Ks
                 </p>
               </div>
             </div>
             <div className="aob-actions">
-              <button className="btn sm" onClick={() => setTrayOpen(true)}>အသေးစိတ်</button>
-              <button className="btn ghost sm" onClick={() => setActiveOrder(null)}>ပိတ်</button>
+              <button
+                className="btn sm"
+                onClick={() => {
+                  const live = myOrders.find(o => o.id === activeOrder.orderId);
+                  setOrderDetail({ ...activeOrder, state: live?.state || activeOrder.state || 'pending' });
+                }}
+              >
+                {L('အသေးစိတ်', 'Details')}
+              </button>
+              <button className="btn ghost sm" onClick={() => setActiveOrder(null)}>{L('ပိတ်', 'Close')}</button>
             </div>
           </div>
         )}
@@ -430,10 +594,10 @@ export default function CustomerCatalog({ onBackToPos = null }) {
         {filteredItems.length === 0 ? (
           <div className="catalog-empty">
             <div className="empty-emoji">🍽️</div>
-            <h3>ဟင်းပွဲမရှိပါ</h3>
-            <p className="muted">အခြားအမည်ဖြင့် ရှာဖွေပါ</p>
+            <h3>{t('ဟင်းပွဲမရှိပါ')}</h3>
+            <p className="muted">{L('ရှာဖွေမှုနှင့် ကိုက်ညီသော ဟင်းပွဲ မတွေ့ပါ', 'No dishes match your search')}</p>
             <button className="btn outline sm" onClick={() => { setSearch(''); setSelectedCat('all'); setDietary('all'); }}>
-              အားလုံးပြန်ကြည့်မည်
+              {L('အားလုံးပြန်ကြည့်မည်', 'Show all dishes')}
             </button>
           </div>
         ) : (
@@ -447,7 +611,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
               const dishTitle = isEn ? (item.name_en || item.name) : (item.name || item.name_en);
 
               return (
-                <div key={item.id} className="catalog-food-card" onClick={() => openDetail(item)}>
+                <div key={item.id} className={`catalog-food-card ${totalDishInTray > 0 ? 'in-tray' : ''}`} onClick={() => openDetail(item)}>
                   <div className="cfc-image-wrap">
                     <img src={imgUrl} alt={dishTitle} loading="lazy" className="cfc-img" />
                     
@@ -455,9 +619,11 @@ export default function CustomerCatalog({ onBackToPos = null }) {
                     <div className="cfc-badges-top">
                       {item.code && <span className="cfc-code-badge">{item.code}</span>}
                       {item.station === 'bar' ? (
-                        <span className="cfc-station-badge bar">🍹 {isEn ? 'Bar' : 'ဘား'}</span>
+                        <span className="cfc-station-badge bar">🍹 {stationLabel(stations, item.station, isEn)}</span>
+                      ) : item.station === 'kitchen' ? (
+                        <span className="cfc-station-badge kitchen">🍳 {stationLabel(stations, item.station, isEn)}</span>
                       ) : (
-                        <span className="cfc-station-badge kitchen">🍳 {isEn ? 'Kitchen' : 'မီးဖို'}</span>
+                        <span className="cfc-station-badge custom">🏷 {stationLabel(stations, item.station, isEn)}</span>
                       )}
                       {item.is_alcohol ? <span className="cfc-alc-badge">18+</span> : null}
                     </div>
@@ -482,15 +648,17 @@ export default function CustomerCatalog({ onBackToPos = null }) {
                       </div>
 
                       <button
+                        type="button"
                         className={`cfc-add-btn ${totalDishInTray > 0 ? 'added' : ''}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           addToTray(item, 1, '');
                         }}
-                        title="ဗန်းထဲထည့်မည်"
+                        title={L('ဗန်းထဲထည့်မည်', 'Add to tray')}
+                        aria-label={L('ဗန်းထဲထည့်မည်', 'Add to tray')}
                       >
                         <Icon name="plus" size={15} />
-                        <span>{totalDishInTray > 0 ? 'ထပ်ထည့်' : 'မှာမည်'}</span>
+                        <span>{totalDishInTray > 0 ? L('ထပ်ထည့်', 'More') : L('မှာမည်', 'Add')}</span>
                       </button>
                     </div>
                   </div>
@@ -504,20 +672,29 @@ export default function CustomerCatalog({ onBackToPos = null }) {
       {/* Floating Bottom Cart Bar */}
       {trayCount > 0 && (
         <div className="catalog-floating-tray-bar">
-          <div className="cftb-inner" onClick={() => setTrayOpen(true)}>
+          <div
+            className="cftb-inner"
+            onClick={() => setTrayOpen(true)}
+            role="button"
+            tabIndex={0}
+            aria-label={L('ဗန်းကြည့်မည်', 'View tray')}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setTrayOpen(true); }}
+          >
             <div className="cftb-left">
               <div className="cftb-icon-wrap">
                 <Icon name="receipt" size={20} />
                 <span className="cftb-counter">{trayCount}</span>
               </div>
               <div className="cftb-info">
-                <div className="cftb-qty">{trayCount} ပွဲ ရွေးချယ်ထားပါသည်</div>
+                <div className="cftb-qty">
+                  {L(`${trayCount} ပွဲ ရွေးချယ်ထားသည်`, `${trayCount} item${trayCount > 1 ? 's' : ''} selected`)}
+                </div>
                 <div className="cftb-subtotal">{traySubtotal.toLocaleString()} Ks</div>
               </div>
             </div>
 
-            <button className="cftb-action-btn">
-              <span>ဗန်းကြည့်မည် / အော်ဒါတင်မည်</span>
+            <button type="button" className="cftb-action-btn">
+              <span>{L('ဗန်းကြည့်မည်', 'View tray')}</span>
               <Icon name="forward" size={16} />
             </button>
           </div>
@@ -526,14 +703,14 @@ export default function CustomerCatalog({ onBackToPos = null }) {
 
       {/* Dish Detail & Customization Modal */}
       {detailItem && (
-        <ModalFrame className="catalog-dish-modal" onClose={() => setDetailItem(null)}>
+        <ModalFrame className="catalog-dish-modal" backdropClassName="catalog-sheet-layer" onClose={() => setDetailItem(null)}>
             <div className="cdm-header">
               <div className="cdm-img-hero">
                 <img
                   src={getFoodImage(detailItem, catMap.get(detailItem.category_id))}
                   alt={detailItem.name}
                 />
-                <button className="cdm-close" onClick={() => setDetailItem(null)}>
+                <button className="cdm-close" onClick={() => setDetailItem(null)} aria-label={L('ပိတ်မည်', 'Close')}>
                   <Icon name="close" size={16} />
                 </button>
               </div>
@@ -546,9 +723,11 @@ export default function CustomerCatalog({ onBackToPos = null }) {
                   <span className="cdm-cat">{isEn ? (categories.find(c => c.id === detailItem.category_id)?.name_en || catMap.get(detailItem.category_id)) : catMap.get(detailItem.category_id)}</span>
                   {detailItem.code && <span className="cfc-code-badge">{detailItem.code}</span>}
                   {detailItem.station === 'bar' ? (
-                    <span className="cfc-station-badge bar">🍹 {isEn ? 'Bar Beverage' : 'ဘားဖျော်ရည်'}</span>
+                    <span className="cfc-station-badge bar">🍹 {stationLabel(stations, detailItem.station, isEn)}</span>
+                  ) : detailItem.station === 'kitchen' ? (
+                    <span className="cfc-station-badge kitchen">🍳 {stationLabel(stations, detailItem.station, isEn)}</span>
                   ) : (
-                    <span className="cfc-station-badge kitchen">🍳 {isEn ? 'Kitchen Station' : 'မီးဖိုချောင်'}</span>
+                    <span className="cfc-station-badge custom">🏷 {stationLabel(stations, detailItem.station, isEn)}</span>
                   )}
                 </div>
                 <div className="cdm-price">
@@ -559,19 +738,23 @@ export default function CustomerCatalog({ onBackToPos = null }) {
 
               {/* Quantity Stepper */}
               <div className="cdm-qty-section">
-                <label>အရေအတွက် (Quantity)</label>
+                <label>{L('အရေအတွက်', 'Quantity')}</label>
                 <div className="stepper-box">
                   <button
+                    type="button"
                     className="stepper-btn"
                     onClick={() => setDetailQty(Math.max(1, detailQty - 1))}
                     disabled={detailQty <= 1}
+                    aria-label={L('အရေအတွက် လျှော့', 'Decrease quantity')}
                   >
                     -
                   </button>
                   <span className="stepper-val">{detailQty}</span>
                   <button
+                    type="button"
                     className="stepper-btn"
                     onClick={() => setDetailQty(detailQty + 1)}
+                    aria-label={L('အရေအတွက် တိုး', 'Increase quantity')}
                   >
                     +
                   </button>
@@ -580,56 +763,58 @@ export default function CustomerCatalog({ onBackToPos = null }) {
 
               {/* Quick Cooking Note Chips */}
               <div className="cdm-notes-section">
-                <label>ချက်ပြုတ်ရန် သီးသန့်မှာကြားချက်များ (Cooking Instructions)</label>
+                <label>{L('ချက်ပြုတ်ရန် သီးသန့်မှာကြားချက်များ', 'Cooking instructions')}</label>
                 <div className="quick-note-chips">
                   {QUICK_NOTES.map(q => (
                     <button
-                      key={q}
+                      key={q.my}
                       type="button"
-                      className={`note-chip ${detailNote.includes(q) ? 'active' : ''}`}
+                      className={`note-chip ${detailNote.includes(q.my) ? 'active' : ''}`}
                       onClick={() => {
-                        if (detailNote.includes(q)) {
-                          setDetailNote(detailNote.replace(q, '').trim());
+                        if (detailNote.includes(q.my)) {
+                          setDetailNote(detailNote.replace(q.my, '').trim());
                         } else {
-                          setDetailNote(detailNote ? `${detailNote}, ${q}` : q);
+                          setDetailNote(detailNote ? `${detailNote}, ${q.my}` : q.my);
                         }
                       }}
                     >
-                      {q}
+                      {isEn ? q.en : q.my}
                     </button>
                   ))}
                 </div>
                 <input
                   type="text"
-                  placeholder="ဥပမာ - ကြက်သွန်နီမပါ၊ ငရုတ်သီးစိမ်းများများ…"
+                  placeholder={L('ဥပမာ - ကြက်သွန်နီမပါ၊ ငရုတ်သီးစိမ်းများများ…', 'e.g. No onions, extra green chili…')}
                   value={detailNote}
                   onChange={e => setDetailNote(e.target.value)}
                   className="cdm-note-input"
                 />
               </div>
+            </div>
 
-              <div className="cdm-footer">
-                <div className="cdm-total-sum">
-                  <small className="muted">{isEn ? 'Total' : 'စုစုပေါင်း'}</small>
-                  <strong>{(detailItem.price * detailQty).toLocaleString()} Ks</strong>
-                </div>
-                <button className="btn success cdm-submit" onClick={confirmDetailAdd}>
-                  <Icon name="plus" size={16} /> {t('ဗန်းထဲသို့ ထည့်မည်')}
-                </button>
+            <div className="cdm-footer">
+              <div className="cdm-total-sum">
+                <small className="muted">{L('စုစုပေါင်း', 'Total')}</small>
+                <strong>{(detailItem.price * detailQty).toLocaleString()} Ks</strong>
               </div>
+              <button type="button" className="btn success cdm-submit" onClick={confirmDetailAdd}>
+                <Icon name="plus" size={16} /> {t('ဗန်းထဲသို့ ထည့်မည်')}
+              </button>
             </div>
         </ModalFrame>
       )}
 
       {/* Customer Tray Drawer / Checkout Modal */}
       {trayOpen && (
-        <ModalFrame className="customer-tray-drawer" onClose={() => setTrayOpen(false)}>
+        <ModalFrame className="customer-tray-drawer" backdropClassName="catalog-sheet-layer" onClose={() => setTrayOpen(false)}>
             <div className="modal-head">
               <div className="tray-title-group">
-                <h3>🛒 {isEn ? 'Your Tray' : 'ဗန်းထဲက စာရင်း'}</h3>
-                <span className="tray-badge-pill">{trayCount} ပွဲ</span>
+                <h3><Icon name="cart" size={18} /> {L('ဗန်းထဲက စာရင်း', 'Your Tray')}</h3>
+                <span className="tray-badge-pill">
+                  {trayCount} {isEn ? (trayCount === 1 ? 'item' : 'items') : 'ပွဲ'}
+                </span>
               </div>
-              <button className="icon-btn" onClick={() => setTrayOpen(false)}>
+              <button type="button" className="icon-btn" onClick={() => setTrayOpen(false)} aria-label={L('ပိတ်မည်', 'Close')}>
                 <Icon name="close" size={18} />
               </button>
             </div>
@@ -650,44 +835,46 @@ export default function CustomerCatalog({ onBackToPos = null }) {
                   {/* Dining Mode Quick Pill */}
                   <div className="tray-dining-summary" onClick={() => setTableModalOpen(true)}>
                     <div className="tds-left">
-                      <Icon name={diningType === 'dine_in' ? 'table' : 'box'} size={18} />
+                      <span className="tds-icon">
+                        <Icon name={diningType === 'dine_in' ? 'table' : 'box'} size={17} />
+                      </span>
                       <div>
-                        <strong>{diningType === 'dine_in' ? (isEn ? 'Dine-In' : 'ဆိုင်ထိုင်စားမည်') : (isEn ? 'Takeaway' : 'ပါဆယ်ယူမည်')}</strong>
+                        <strong>{diningType === 'dine_in' ? L('ဆိုင်ထိုင်စားမည်', 'Dine-In') : L('ပါဆယ်ယူမည်', 'Takeaway')}</strong>
                         <p className="muted">
                           {diningType === 'dine_in'
-                            ? (selectedTableObj ? `စားပွဲ: ${selectedTableObj.name}` : '⚠️ စားပွဲရွေးပါ')
-                            : 'ပါဆယ်'}
+                            ? (selectedTableObj ? `${L('စားပွဲ', 'Table')}: ${selectedTableObj.name}` : L('⚠️ စားပွဲရွေးပါ', '⚠️ Choose a table'))
+                            : L('ထုပ်ပိုး၍ ယူဆောင်မည်', 'Pack and collect')}
                         </p>
                       </div>
                     </div>
-                    <button className="btn ghost sm">ပြင်ဆင်</button>
+                    <button type="button" className="btn ghost sm">{L('ပြင်ဆင်', 'Edit')}</button>
                   </div>
 
                   {/* Customer Information Section */}
                   <div className="tray-customer-inputs">
                     <div className="input-group">
-                      <label>ဖောက်သည် အမည် (Customer Name)</label>
+                      <label>{L('ဖောက်သည် အမည်', 'Customer name')}</label>
                       <input
                         type="text"
-                        placeholder="ဥပမာ - မောင်မောင်"
+                        placeholder={L('ဥပမာ - မောင်မောင်', 'e.g. Aung Aung')}
                         value={customerName}
                         onChange={e => setCustomerName(e.target.value)}
                       />
                     </div>
                     <div className="input-group">
-                      <label>ဖုန်းနံပါတ် (Phone Number)</label>
+                      <label>{L('ဖုန်းနံပါတ်', 'Phone number')}</label>
                       <input
                         type="tel"
-                        placeholder="ဥပမာ - 09xxxxxxxxx"
+                        placeholder="09xxxxxxxxx"
                         value={customerPhone}
                         onChange={e => setCustomerPhone(e.target.value)}
                       />
                     </div>
                     <div className="input-group full">
-                      <label>အော်ဒါ အထွေထွေ မှတ်ချက် (General Kitchen Note)</label>
+                      <label>{L('အော်ဒါ အထွေထွေ မှတ်ချက်', 'Order note')}</label>
                       <input
                         type="text"
-                        placeholder="ဥပမာ - အားလုံး အစပ်မထည့်ပါနှင့်…"
+                        placeholder={L('ဥပမာ - အားလုံး အစပ်မထည့်ပါနှင့်…', 'e.g. Not spicy for the whole order…')}
                         value={orderNote}
                         onChange={e => setOrderNote(e.target.value)}
                       />
@@ -697,8 +884,8 @@ export default function CustomerCatalog({ onBackToPos = null }) {
                   {/* Tray Items List */}
                   <div className="tray-items-list">
                     <div className="tray-list-header">
-                      <span>ရွေးချယ်ထားသော ဟင်းပွဲများ</span>
-                      <button className="text-danger-btn" onClick={clearTray}>အားလုံးဖျက်မည်</button>
+                      <span>{L('ရွေးချယ်ထားသော ဟင်းပွဲများ', 'Selected dishes')}</span>
+                      <button type="button" className="text-danger-btn" onClick={clearTray}>{L('အားလုံးဖျက်မည်', 'Clear all')}</button>
                     </div>
 
                     {tray.map((it, idx) => (
@@ -719,24 +906,30 @@ export default function CustomerCatalog({ onBackToPos = null }) {
                         {/* Stepper */}
                         <div className="tray-item-stepper">
                           <button
+                            type="button"
                             className="tis-btn"
                             onClick={() => updateTrayQty(idx, -1)}
-                            title="လျော့မည်"
+                            title={L('လျော့မည်', 'Decrease')}
+                            aria-label={L('လျော့မည်', 'Decrease')}
                           >
                             -
                           </button>
                           <span className="tis-qty">{it.qty}</span>
                           <button
+                            type="button"
                             className="tis-btn"
                             onClick={() => updateTrayQty(idx, 1)}
-                            title="တိုးမည်"
+                            title={L('တိုးမည်', 'Increase')}
+                            aria-label={L('တိုးမည်', 'Increase')}
                           >
                             +
                           </button>
                           <button
+                            type="button"
                             className="tis-del-btn"
                             onClick={() => removeTrayItem(idx)}
-                            title="ပယ်ဖျက်"
+                            title={L('ပယ်ဖျက်', 'Remove')}
+                            aria-label={L('ပယ်ဖျက်', 'Remove')}
                           >
                             <Icon name="trash" size={14} />
                           </button>
@@ -748,23 +941,23 @@ export default function CustomerCatalog({ onBackToPos = null }) {
                   {/* Bill Summary Breakdown */}
                   <div className="tray-bill-breakdown">
                     <div className="tbb-row">
-                      <span>ဟင်းပွဲ စုစုပေါင်း ({trayCount} ပွဲ)</span>
+                      <span>{L(`ဟင်းပွဲ စုစုပေါင်း (${trayCount} ပွဲ)`, `Subtotal (${trayCount} item${trayCount > 1 ? 's' : ''})`)}</span>
                       <strong>{traySubtotal.toLocaleString()} Ks</strong>
                     </div>
                     {Number(shop.tax_rate) > 0 && (
                       <div className="tbb-row muted">
-                        <span>ကုန်သွယ်ခွန် ({shop.tax_rate}%)</span>
+                        <span>{L('ကုန်သွယ်ခွန်', 'Tax')} ({shop.tax_rate}%)</span>
                         <span>{Math.round(traySubtotal * shop.tax_rate / 100).toLocaleString()} Ks</span>
                       </div>
                     )}
                     {Number(shop.service_rate) > 0 && (
                       <div className="tbb-row muted">
-                        <span>ဝန်ဆောင်ခ ({shop.service_rate}%)</span>
+                        <span>{L('ဝန်ဆောင်ခ', 'Service charge')} ({shop.service_rate}%)</span>
                         <span>{Math.round(traySubtotal * shop.service_rate / 100).toLocaleString()} Ks</span>
                       </div>
                     )}
                     <div className="tbb-row total">
-                      <span>ကျသင့်ငွေ စုစုပေါင်း</span>
+                      <span>{L('ကျသင့်ငွေ စုစုပေါင်း', 'Grand total')}</span>
                       <span className="tbb-grand-total">
                         {(
                           traySubtotal +
@@ -787,11 +980,11 @@ export default function CustomerCatalog({ onBackToPos = null }) {
                   onClick={submitOrder}
                 >
                   {submitting ? (
-                    'ပို့နေသည်…'
+                    L('ပို့နေသည်…', 'Sending…')
                   ) : (
                     <>
                       <Icon name="check" size={18} />
-                      <span>{isEn ? `Place Order (${traySubtotal.toLocaleString()} Ks)` : `အော်ဒါတင်မည် (${traySubtotal.toLocaleString()} Ks)`}</span>
+                      <span>{L(`အော်ဒါတင်မည် (${traySubtotal.toLocaleString()} Ks)`, `Place Order (${traySubtotal.toLocaleString()} Ks)`)}</span>
                     </>
                   )}
                 </button>
@@ -802,85 +995,213 @@ export default function CustomerCatalog({ onBackToPos = null }) {
 
       {/* Table & Dining Mode Picker Modal (Rendered after Tray to overlay cleanly) */}
       {tableModalOpen && (
-        <ModalFrame className="table-picker-modal" backdropClassName="table-modal-layer" onClose={() => setTableModalOpen(false)}>
-            <div className="modal-head">
-              <h3>🍽️ {isEn ? 'Choose Dining Mode' : 'စားသုံးမည့်ပုံစံ ရွေးပါ'}</h3>
-              <button className="icon-btn" onClick={() => setTableModalOpen(false)}>
+        <ModalFrame className="table-picker-modal" backdropClassName="table-modal-layer catalog-sheet-layer" onClose={() => setTableModalOpen(false)}>
+            <div className="modal-head tp-head">
+              <div className="tp-head-title">
+                <span className="tp-head-icon"><Icon name="table" size={18} /></span>
+                <div>
+                  <h3>{L('စားသုံးမည့်ပုံစံ ရွေးပါ', 'Choose Dining Mode')}</h3>
+                  <p>{L('စားပွဲရွေးပြီး မှာယူပါ — သို့မဟုတ် ပါဆယ်ထုပ်ပါ', 'Pick a table or pack and collect')}</p>
+                </div>
+              </div>
+              <button type="button" className="icon-btn" onClick={() => setTableModalOpen(false)} aria-label={L('ပိတ်မည်', 'Close')}>
                 <Icon name="close" size={16} />
               </button>
             </div>
 
-            <div className="dining-type-toggle">
-              <button
-                className={`dtt-btn ${diningType === 'dine_in' ? 'active' : ''}`}
-                onClick={() => setDiningType('dine_in')}
-              >
-                <Icon name="table" size={18} />
-                <div>
-                  <strong>{isEn ? 'Dine-In' : 'ဆိုင်ထိုင်စားမည်'}</strong>
-                  <small className="muted">စားပွဲနံပါတ် သတ်မှတ်၍ မှာယူမည်</small>
+            <div className="tp-body">
+              <div className="dining-type-toggle">
+                <button
+                  className={`dtt-btn ${diningType === 'dine_in' ? 'active' : ''}`}
+                  onClick={() => setDiningType('dine_in')}
+                >
+                  <span className="dtt-icon"><Icon name="table" size={19} /></span>
+                  <span className="dtt-text">
+                    <strong>{L('ဆိုင်ထိုင်စားမည်', 'Dine-In')}</strong>
+                    <small className="muted">{L('စားပွဲနံပါတ် သတ်မှတ်၍ မှာယူမည်', 'Pick a table and order')}</small>
+                  </span>
+                  {diningType === 'dine_in' && <span className="dtt-check"><Icon name="check" size={11} /></span>}
+                </button>
+                <button
+                  className={`dtt-btn take ${diningType === 'takeaway' ? 'active' : ''}`}
+                  onClick={() => {
+                    setDiningType('takeaway');
+                    setSelectedTableId('');
+                  }}
+                >
+                  <span className="dtt-icon"><Icon name="box" size={19} /></span>
+                  <span className="dtt-text">
+                    <strong>{L('ပါဆယ် ယူမည်', 'Takeaway')}</strong>
+                    <small className="muted">{L('ထုပ်ပိုး၍ ယူဆောင်မည်', 'Pack and collect')}</small>
+                  </span>
+                  {diningType === 'takeaway' && <span className="dtt-check"><Icon name="check" size={11} /></span>}
+                </button>
+              </div>
+
+              {diningType === 'dine_in' && (
+                <div className="table-grid-selection">
+                  <div className="tgs-head">
+                    <span className="section-title">{L('ဆိုင်တွင်း စားပွဲများ', 'Dine-in tables')}</span>
+                    <span className="tgs-free-count">
+                      {tables.filter(t => !t.is_busy).length} {L('လွတ်', 'free')}
+                    </span>
+                  </div>
+                  <div className="tgs-grid">
+                    {tables.map(t => {
+                      const isSelected = String(selectedTableId) === String(t.id);
+                      return (
+                        <div
+                          key={t.id}
+                          className={`tgs-card ${isSelected ? 'selected' : ''} ${t.is_busy ? 'busy' : 'free'}`}
+                          onClick={() => setSelectedTableId(String(t.id))}
+                          role="button"
+                          tabIndex={0}
+                          aria-pressed={isSelected}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedTableId(String(t.id)); }}
+                        >
+                          {isSelected && <span className="tgs-check"><Icon name="check" size={11} /></span>}
+                          <div className="tgs-table-name">{t.name}</div>
+                          <div className="tgs-zone-seats">
+                            <span>{t.zone || L('အပြင်', 'Outdoor')}</span> · <span>{t.seats || 4} {L('ယောက်', 'seats')}</span>
+                          </div>
+                          <span className={`tgs-status-dot ${t.is_busy ? 'busy' : 'free'}`}>
+                            {t.is_busy ? L('လက်ရှိလူရှိ', 'Occupied') : L('လွတ်', 'Free')}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </button>
-              <button
-                className={`dtt-btn ${diningType === 'takeaway' ? 'active' : ''}`}
-                onClick={() => {
-                  setDiningType('takeaway');
-                  setSelectedTableId('');
-                }}
-              >
-                <Icon name="box" size={18} />
-                <div>
-                  <strong>ပါဆယ် ယူမည် (Takeaway)</strong>
-                  <small className="muted">ထုပ်ပိုး၍ ယူဆောင်မည်</small>
-                </div>
-              </button>
+              )}
             </div>
 
-            {diningType === 'dine_in' && (
-              <div className="table-grid-selection">
-                <label className="section-title">ဆိုင်တွင်း စားပွဲများ (Tables)</label>
-                <div className="tgs-grid">
-                  {tables.map(t => {
-                    const isSelected = String(selectedTableId) === String(t.id);
-                    return (
-                      <div
-                        key={t.id}
-                        className={`tgs-card ${isSelected ? 'selected' : ''} ${t.is_busy ? 'busy' : 'free'}`}
-                        onClick={() => setSelectedTableId(String(t.id))}
-                      >
-                        <div className="tgs-table-name">{t.name}</div>
-                        <div className="tgs-zone-seats">
-                          <span>{t.zone || 'အပြင်'}</span> · <span>{t.seats || 4} ယောက်</span>
-                        </div>
-                        <span className={`tgs-status-dot ${t.is_busy ? 'busy' : 'free'}`}>
-                          {t.is_busy ? 'လက်ရှိလူရှိ' : 'လွတ်'}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            <div className="modal-actions mt-18">
+            <div className="tp-footer">
               <button
+                type="button"
                 className="btn success full"
+                disabled={diningType === 'dine_in' && !selectedTableId}
                 onClick={() => {
-                  if (diningType === 'dine_in' && !selectedTableId) {
-                    showToast('⚠️ စားပွဲတစ်ခုခုကို ရွေးပေးပါ');
-                    return;
-                  }
                   setTableModalOpen(false);
-                  showToast('✓ စားသုံးမည့်ပုံစံ အတည်ပြုပြီးပါပြီ');
+                  showToast(L('✓ စားသုံးမည့်ပုံစံ အတည်ပြုပြီးပါပြီ', '✓ Dining mode confirmed'));
                 }}
               >
-                အတည်ပြုမည်
+                {L('အတည်ပြုမည်', 'Confirm')}
               </button>
             </div>
         </ModalFrame>
       )}
 
-      {toast && <div className="catalog-toast">{toast}</div>}
+      {installHelpOpen && (
+        <ModalFrame className="install-help-modal" onClose={() => setInstallHelpOpen(false)}>
+          <div className="modal-head">
+            <h3>{t('App အဖြစ် ထည့်သွင်းနည်း')}</h3>
+            <button className="icon-btn" onClick={() => setInstallHelpOpen(false)}>
+              <Icon name="close" size={16} />
+            </button>
+          </div>
+          <div className="install-help-body">
+            <div className="ih-step">
+              <span className="ih-num">1</span>
+              <p>{isIos
+                ? t('Safari တွင် Share ခလုပ် နှိပ်ပြီး "Add to Home Screen" ရွေးပါ။')
+                : t('ဘရောက်ဇာ မီနူး (⋮) မှ "Install app" သို့မဟုတ် "Add to Home screen" ရွေးပါ။')}</p>
+            </div>
+            <div className="ih-step">
+              <span className="ih-num">2</span>
+              <p>{t('ဖုန်း home screen မှ မီနူးကို အမြန်ဖွင့်နိုင်ပါသည်။')}</p>
+            </div>
+            <button className="btn success full" onClick={() => setInstallHelpOpen(false)}>
+              {t('ရပါပြီ')}
+            </button>
+          </div>
+        </ModalFrame>
+      )}
+
+      {myOrdersOpen && (
+        <ModalFrame className="my-orders-modal" backdropClassName="catalog-sheet-layer" onClose={() => setMyOrdersOpen(false)}>
+          <div className="modal-head">
+            <h3>{L('ကျွန်ုပ်၏ အော်ဒါများ', 'My orders')}</h3>
+            <button type="button" className="icon-btn" onClick={() => setMyOrdersOpen(false)} aria-label={L('ပိတ်မည်', 'Close')}>
+              <Icon name="close" size={16} />
+            </button>
+          </div>
+          <div className="my-orders-body">
+            {myOrders.map(o => (
+              <button
+                key={o.token || o.id}
+                type="button"
+                className="my-order-row"
+                onClick={() => { setMyOrdersOpen(false); setOrderDetail(o); }}
+              >
+                <span className={`mor-ico ${o.type === 'dine_in' ? 'dine' : 'take'}`}>
+                  <Icon name={o.type === 'dine_in' ? 'table' : 'box'} size={17} />
+                </span>
+                <span className="mor-main">
+                  <strong>#{o.orderNo}</strong>
+                  <small>
+                    {o.tableName || L('ပါဆယ်', 'Takeaway')} · {o.itemCount || o.items?.length || 0} {L('မျိုး', 'items')} · {o.date} {o.time}
+                  </small>
+                </span>
+                <span className="mor-right">
+                  <span className={`mor-status ${o.state || 'pending'}`}>{orderStateLabel(o.state)}</span>
+                  <strong>{Number(o.total || 0).toLocaleString()} Ks</strong>
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="my-orders-foot">
+            <button type="button" className="btn ghost full" onClick={() => setMyOrdersOpen(false)}>
+              {L('ပိတ်မည်', 'Close')}
+            </button>
+          </div>
+        </ModalFrame>
+      )}
+
+      {orderDetail && (
+        <ModalFrame className="order-detail-modal" backdropClassName="catalog-sheet-layer" onClose={() => setOrderDetail(null)}>
+          <div className="modal-head">
+            <h3>{L('အော်ဒါ အသေးစိတ်', 'Order details')}</h3>
+            <button type="button" className="icon-btn" onClick={() => setOrderDetail(null)} aria-label={L('ပိတ်မည်', 'Close')}>
+              <Icon name="close" size={16} />
+            </button>
+          </div>
+          <div className="order-detail-body">
+            <div className="od-summary">
+              <div>
+                <div className="od-no">#{orderDetail.orderNo}</div>
+                <div className="od-meta">
+                  {orderDetail.tableName || L('ပါဆယ်', 'Takeaway')} · {orderDetail.date} {orderDetail.time}
+                </div>
+              </div>
+              <span className={`od-status ${orderDetail.state || 'pending'}`}>
+                <Icon name={orderDetail.state === 'pending' ? 'clock' : orderDetail.state === 'cancelled' ? 'close' : 'check'} size={12} />
+                {orderStateLabel(orderDetail.state)}
+              </span>
+            </div>
+            <div className="od-items">
+              {(orderDetail.items || []).map((it, i) => (
+                <div className="od-row" key={`${it.id}_${i}`}>
+                  <span className="od-qty">{it.qty}×</span>
+                  <span className="od-name">
+                    {it.name}
+                    {it.note ? <small> · {it.note}</small> : null}
+                  </span>
+                  <strong className="od-amt">{(it.price * it.qty).toLocaleString()} Ks</strong>
+                </div>
+              ))}
+            </div>
+            <div className="od-total">
+              <span>{L('စုစုပေါင်း', 'Total')}</span>
+              <strong>{orderDetail.total?.toLocaleString()} Ks</strong>
+            </div>
+            <button type="button" className="btn success full" onClick={() => setOrderDetail(null)}>
+              {L('ရပါပြီ', 'Got it')}
+            </button>
+          </div>
+        </ModalFrame>
+      )}
+
+      {toast && <div className={`catalog-toast ${trayCount > 0 ? 'over-tray' : ''}`}>{toast}</div>}
     </div>
   );
 }

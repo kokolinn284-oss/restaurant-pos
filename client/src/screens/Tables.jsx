@@ -13,6 +13,7 @@ function nextHour() {
 export default function Tables({ data, openOrder, reload, showToast, staff, online = true, drafts = [], syncNow }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
+  const [confirmingId, setConfirmingId] = useState(null);
   const [billsFor, setBillsFor] = useState(null);
   const [resOpen, setResOpen] = useState(false);
   const [resForm, setResForm] = useState({ customer_name: '', phone: '', party_size: 2, table_id: '', reserved_at: nextHour(), note: '' });
@@ -21,6 +22,9 @@ export default function Tables({ data, openOrder, reload, showToast, staff, onli
   const reservations = data.reservations || [];
   const openValue = (data.openOrders || []).reduce((s, o) => s + (o.total || 0), 0);
   const openDrafts = drafts.filter(d => d.status === 'open');
+  const hasLocal = (tb) => openDrafts.some(d => d.table_id === tb.id);
+  const busyTables = data.tables.filter(tb => tb.order_id || hasLocal(tb)).length;
+  const freeTables = data.tables.length - busyTables;
 
   const openTable = async (tb) => {
     if (busy) return;
@@ -84,6 +88,32 @@ export default function Tables({ data, openOrder, reload, showToast, staff, onli
 
   const takeawayOrders = data.openOrders.filter(o => o.type !== 'dine_in');
 
+  const onlineOrders = (data.openOrders || [])
+    .filter(o => o.source === 'online')
+    .sort((a, b) => (a.confirmed_at ? 1 : 0) - (b.confirmed_at ? 1 : 0) || a.id - b.id);
+  const pendingOnline = onlineOrders.filter(o => !o.confirmed_at);
+
+  const confirmOnline = async (o) => {
+    setConfirmingId(o.id);
+    try {
+      const r = await api(`/orders/${o.id}/confirm`, { method: 'POST' });
+      await reload();
+      showToast(r.warnings?.length
+        ? `${t('အော်ဒါ အတည်ပြုပြီး')} · ${r.warnings.length} ${t('လက်ကျန် သတိပေးချက်')}`
+        : t('အော်ဒါ အတည်ပြုပြီး မီးဖိုချောင်သို့ ပို့ပြီးပါပြီ'));
+    } catch (e) { showToast(e.message); }
+    setConfirmingId(null);
+  };
+
+  const declineOnline = async (o) => {
+    if (!window.confirm(t('ဤအွန်လိုင်းအော်ဒါကို ပယ်ဖျက်မှာ သေချာပါသလား?'))) return;
+    try {
+      await api(`/orders/${o.id}/void`, { method: 'POST' });
+      await reload();
+      showToast(t('အော်ဒါ ပယ်ဖျက်ပြီးပါပြီ'));
+    } catch (e) { showToast(e.message); }
+  };
+
   const addReservation = async () => {
     try {
       await api('/reservations', {
@@ -131,30 +161,92 @@ export default function Tables({ data, openOrder, reload, showToast, staff, onli
         </div>
       </div>
 
-      <div className="quick-row">
-        <button className="quick-card takeaway" onClick={() => newOrder('takeaway')}>
-          <span className="quick-ico"><Icon name="cart" /></span>
-          <div>
-            <strong>{t('ပါဆယ်')}</strong>
-            <small>{t('ပါဆယ်အရောင်း')}</small>
+      <div className="glance-row">
+        <div className="glance-card is-amber">
+          <span className="glance-ico"><Icon name="receipt" size={18} /></span>
+          <div className="glance-txt">
+            <span className="glance-cap">{t('လက်ရှိ အော်ဒါ')}</span>
+            <strong className="glance-val">{data.openOrders.length}</strong>
           </div>
-        </button>
-        <button className="quick-card delivery" onClick={() => newOrder('delivery')}>
-          <span className="quick-ico"><Icon name="phone" /></span>
-          <div>
-            <strong>{t('ပို့ဆောင်')}</strong>
-            <small>{t('အိမ်အရောက်ပို့')}</small>
-          </div>
-        </button>
-        <div className="quick-stat">
-          <span>{t('လက်ရှိ အော်ဒါ')}</span>
-          <strong>{data.openOrders.length}</strong>
         </div>
-        <div className="quick-stat">
-          <span>{t('လက်ကျန် တန်ဖိုး')}</span>
-          <strong>{money(openValue)}</strong>
+        <div className="glance-card is-brand">
+          <span className="glance-ico"><Icon name="table" size={18} /></span>
+          <div className="glance-txt">
+            <span className="glance-cap">{t('လွတ်နေသော စားပွဲ')}</span>
+            <strong className="glance-val">{freeTables}<small>/ {data.tables.length}</small></strong>
+          </div>
+        </div>
+        <div className="glance-card is-indigo">
+          <span className="glance-ico"><Icon name="calendar" size={18} /></span>
+          <div className="glance-txt">
+            <span className="glance-cap">{t('ကြိုတင်မှာယူမှု')}</span>
+            <strong className="glance-val">{reservations.length}</strong>
+          </div>
+        </div>
+        <div className="glance-card is-sky">
+          <span className="glance-ico"><Icon name="cash" size={18} /></span>
+          <div className="glance-txt">
+            <span className="glance-cap">{t('လက်ကျန် တန်ဖိုး')}</span>
+            <strong className="glance-val is-money" title={money(openValue)}>{money(openValue)}</strong>
+          </div>
         </div>
       </div>
+
+      {onlineOrders.length > 0 && (
+        <section className="zone online-orders-zone">
+          <div className="zone-head">
+            <h3>
+              <Icon name="receipt" size={16} /> {t('အွန်လိုင်း အော်ဒါများ')}
+              <span className={`online-count ${pendingOnline.length ? 'hot' : ''}`}>{pendingOnline.length}</span>
+            </h3>
+            <span className="online-hint small">
+              {pendingOnline.length > 0 ? t('အတည်ပြုရန် စောင့်နေသည်') : t('အားလုံး အတည်ပြုပြီး')}
+            </span>
+          </div>
+          <div className="list">
+            {onlineOrders.map(o => {
+              const pending = !o.confirmed_at;
+              return (
+                <div
+                  key={o.id}
+                  className={`list-row online-order-row ${pending ? 'is-pending' : ''}`}
+                  onClick={() => openOrder(o.id)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openOrder(o.id); }}
+                >
+                  <span className={`online-ico ${o.type === 'dine_in' ? 'dine' : 'take'}`}>
+                    <Icon name={o.type === 'dine_in' ? 'table' : 'box'} size={17} />
+                  </span>
+                  <div className="grow">
+                    <strong>#{o.order_no} · {o.customer_name || t('အွန်လိုင်း ဖောက်သည်')}</strong>
+                    <small className="muted">
+                      {o.type === 'dine_in' ? (o.table_name || t('စားပွဲ')) : t('ပါဆယ်')} · {o.item_count} {t('မျိုး')} · {o.opened_at?.slice(11, 16)}
+                      {o.customer_phone ? ` · ${o.customer_phone}` : ''}
+                    </small>
+                  </div>
+                  <div className="online-side">
+                    <span className="amount">{money(o.total)}</span>
+                    {pending ? (
+                      <div className="online-actions" onClick={e => e.stopPropagation()}>
+                        <button className="btn sm" disabled={confirmingId === o.id} onClick={() => confirmOnline(o)}>
+                          <Icon name="check" size={14} /> {t('အတည်ပြု')}
+                        </button>
+                        {staff?.role !== 'waiter' && (
+                          <button className="btn ghost sm" onClick={() => declineOnline(o)}>{t('ပယ်')}</button>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="badge ok">{t('အတည်ပြုပြီး')}</span>
+                    )}
+                  </div>
+                  <Icon name="chevronRight" size={16} className="online-go" />
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <section className="zone">
         <div className="zone-head">
@@ -216,47 +308,62 @@ export default function Tables({ data, openOrder, reload, showToast, staff, onli
         </section>
       )}
 
-      {zones.map(zone => (
-        <section key={zone} className="zone">
-          <div className="zone-head">
-            <h3>{t(zone)}</h3>
-            <span className="muted small">
-              {data.tables.filter(tb => (tb.zone || 'အခြား') === zone && tb.order_id).length} / {data.tables.filter(tb => (tb.zone || 'အခြား') === zone).length} {t('အသုံးပြုနေသည်')}
-            </span>
-          </div>
-          <div className="table-grid">
-            {data.tables.filter(tb => (tb.zone || 'အခြား') === zone).map(tb => {
-              const locals = openDrafts.filter(d => d.table_id === tb.id);
-              const local = locals[locals.length - 1];
-              const busy = !!(tb.order_id || local);
-              return (
-                <button key={tb.id} className={`table-card ${busy ? 'busy' : ''}`} onClick={() => openTable(tb)}>
-                  <div className="tc-top">
-                    <span className="tc-name">{tb.name}</span>
-                    <span className={`badge ${busy ? 'bad' : 'ok'}`}>
-                      {local ? t('local အော်ဒါ') : tb.order_id ? t('အသုံးပြုနေသည်') : t('လွတ်နေသည်')}
-                    </span>
-                  </div>
-                  <div className="tc-seats">{t('ထိုင်ခုံ')} {tb.seats} · {t(tb.zone || 'အခြား')}</div>
-                  {local ? (
-                    <div className="tc-order local">
-                      <span>#{local.order_no}{locals.length > 1 ? ` +${locals.length - 1}` : ''}</span>
-                      <strong>{money(local.total)}</strong>
+      {zones.map(zone => {
+        const zoneTables = data.tables.filter(tb => (tb.zone || 'အခြား') === zone);
+        const zoneBusy = zoneTables.filter(tb => tb.order_id || hasLocal(tb)).length;
+        return (
+          <section key={zone} className="zone">
+            <div className="zone-head">
+              <h3>{t(zone)}</h3>
+              <span className="zone-meta">
+                <span className="zone-meter" aria-hidden="true">
+                  <span style={{ width: `${zoneTables.length ? Math.round((zoneBusy / zoneTables.length) * 100) : 0}%` }} />
+                </span>
+                <span className="zone-stat"><b>{zoneBusy}</b> / {zoneTables.length} · {t('အသုံးပြုနေသည်')}</span>
+              </span>
+            </div>
+            <div className="table-grid">
+              {zoneTables.map(tb => {
+                const locals = openDrafts.filter(d => d.table_id === tb.id);
+                const local = locals[locals.length - 1];
+                const busy = !!(tb.order_id || local);
+                return (
+                  <button key={tb.id} className={`table-card ${busy ? 'busy' : ''}`} onClick={() => openTable(tb)}>
+                    <div className="tc-top">
+                      <span className="tc-name">{tb.name}</span>
+                      <span className={`badge ${busy ? 'bad' : 'ok'}`}>
+                        {local ? t('local အော်ဒါ') : tb.order_id ? t('အသုံးပြုနေသည်') : t('လွတ်နေသည်')}
+                      </span>
                     </div>
-                  ) : tb.order_id ? (
-                    <div className="tc-order">
-                      <span>#{tb.order_no}{tb.bills > 1 ? ` +${tb.bills - 1}` : ''}</span>
-                      <strong>{money(tb.bills > 1 ? tb.open_total : tb.total)}</strong>
+                    <div className="tc-seats">
+                      <Icon name="users" size={13} />
+                      <span>{tb.seats} {t('ထိုင်ခုံ')}</span>
+                      <span className="tc-zone">{t(tb.zone || 'အခြား')}</span>
                     </div>
-                  ) : (
-                    <div className="tc-open"><Icon name="plus" /> {t('Order ဖွင့်ရန်')}</div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-      ))}
+                    {local ? (
+                      <div className="tc-order local">
+                        <span>#{local.order_no}{locals.length > 1 ? ` +${locals.length - 1}` : ''}</span>
+                        <strong>{money(local.total)}</strong>
+                      </div>
+                    ) : tb.order_id ? (
+                      <div className="tc-order">
+                        <span>#{tb.order_no}{tb.bills > 1 ? ` +${tb.bills - 1}` : ''}</span>
+                        <strong>{money(tb.bills > 1 ? tb.open_total : tb.total)}</strong>
+                      </div>
+                    ) : (
+                      <div className="tc-open">
+                        <Icon name="plus" size={14} />
+                        <span>{t('Order ဖွင့်ရန်')}</span>
+                        <Icon name="chevronRight" size={14} className="tc-go" />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
 
       <section className="zone">
         <div className="zone-head"><h3>{t('ပါဆယ် / ပို့ဆောင် Order များ')}</h3></div>

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, money } from '../api.js';
 import { useI18n } from '../i18n.jsx';
-import { Icon, Modal, Field, Empty, Switch, SearchBox } from '../components/ui.jsx';
+import { Icon, Modal, Field, Empty, Switch, SearchBox, AddableSelect, stationLabel } from '../components/ui.jsx';
 import { DataTableToolbar, Pagination } from '../components/DataTableToolbar.jsx';
 import { ImagePickerModal } from '../components/FoodPresetPicker.jsx';
 import { getFoodImage } from '../foodPresets.js';
@@ -33,9 +33,17 @@ const emptyPromo = {
 };
 
 export default function MenuAdmin({ data, reload, showToast }) {
-  const { t } = useI18n();
+  const { t, isEn } = useI18n();
   const [tab, setTab] = useState('items'); // 'items' | 'promotions'
   const [catId, setCatId] = useState('all');
+
+  const stations = data.stations?.length
+    ? data.stations
+    : [
+        { value: 'kitchen', label: t('မီးဖိုချောင်'), label_en: 'Kitchen' },
+        { value: 'bar', label: t('ဘား'), label_en: 'Bar' },
+      ];
+  const stationName = (value) => stationLabel(stations, value, isEn);
 
   // Toolbar & Data Management States
   const [search, setSearch] = useState('');
@@ -193,7 +201,7 @@ export default function MenuAdmin({ data, reload, showToast }) {
         available: edit.available ? 1 : 0,
         sort: Number(edit.sort) || 0,
         is_alcohol: edit.is_alcohol ? 1 : 0,
-        station: edit.station === 'bar' ? 'bar' : 'kitchen',
+        station: edit.station || 'kitchen',
         image: edit.image || '',
         code: edit.code || '',
       };
@@ -363,7 +371,7 @@ export default function MenuAdmin({ data, reload, showToast }) {
       it.price,
       it.cost || 0,
       it.unit || 'ပွဲ',
-      it.station === 'bar' ? 'ဘား' : 'မီးဖိုချောင်',
+      stationName(it.station),
       it.available ? 'ရောင်းချနေသည်' : 'ပိတ်ထားသည်',
       it.is_alcohol ? '18+' : 'ပုံမှန်',
       it.image || '',
@@ -555,7 +563,10 @@ export default function MenuAdmin({ data, reload, showToast }) {
                 { value: 'available', label: t('ရောင်းချနေသည်') },
                 { value: 'unavailable', label: t('ပိတ်ထားသည်') },
               ],
-              station: true,
+              station: stations.map((st) => ({
+                value: st.value,
+                label: stationLabel(stations, st.value, isEn),
+              })),
               hasImage: true,
             }}
             sortField={sortField}
@@ -641,7 +652,7 @@ export default function MenuAdmin({ data, reload, showToast }) {
                             {it.is_alcohol ? <span className="alc-badge">18+</span> : null}
                             {it.code ? <span className="dish-code-badge">{it.code}</span> : null}
                             <span className="station-badge">
-                              {t(it.station === 'bar' ? 'ဘား' : 'မီးဖို')}
+                              {it.station === 'kitchen' ? t('မီးဖို') : stationName(it.station)}
                             </span>
                           </div>
 
@@ -795,7 +806,7 @@ export default function MenuAdmin({ data, reload, showToast }) {
                             </td>
                             <td className="muted">{it.code || '—'}</td>
                             <td className="muted">
-                              {cat?.name} · {t(it.station === 'bar' ? 'ဘား' : 'မီးဖိုချောင်')}
+                              {cat?.name} · {stationName(it.station)}
                             </td>
                             <td>
                               <strong>{money(it.price)}</strong>
@@ -1156,16 +1167,28 @@ export default function MenuAdmin({ data, reload, showToast }) {
             </Field>
 
             <Field label={t('အမျိုးအစား')}>
-              <select
+              <AddableSelect
                 value={edit.categoryId || edit.category_id}
-                onChange={(e) => setEdit({ ...edit, categoryId: Number(e.target.value) })}
+                onChange={(v) => setEdit({ ...edit, categoryId: Number(v) })}
+                onAdd={async (name) => {
+                  const maxSort = data.categories.reduce((m, c) => Math.max(m, Number(c.sort) || 0), 0);
+                  const created = await api('/categories', {
+                    method: 'POST',
+                    body: JSON.stringify({ name, sort: maxSort + 10 }),
+                  });
+                  await reload();
+                  showToast(t('အမျိုးအစား အသစ် ထည့်ပြီးပါပြီ'));
+                  return created.id;
+                }}
+                addLabel={t('အမျိုးအစား အသစ်')}
+                namePlaceholder={t('အမျိုးအစားအမည်')}
               >
                 {data.categories.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
                   </option>
                 ))}
-              </select>
+              </AddableSelect>
             </Field>
 
             <Field label={t('ရောင်းစျေး (ကျပ်)')}>
@@ -1187,21 +1210,54 @@ export default function MenuAdmin({ data, reload, showToast }) {
             </Field>
 
             <Field label={t('ယူနစ်')}>
-              <input
-                value={edit.unit}
-                onChange={(e) => setEdit({ ...edit, unit: e.target.value })}
-                placeholder="ပွဲ"
-              />
+              <AddableSelect
+                value={edit.unit || ''}
+                onChange={(v) => setEdit({ ...edit, unit: v })}
+                onAdd={async (name) => {
+                  const created = await api('/menu-units', {
+                    method: 'POST',
+                    body: JSON.stringify({ name }),
+                  });
+                  await reload();
+                  showToast(t('ယူနစ် အသစ် ထည့်ပြီးပါပြီ'));
+                  return created.value;
+                }}
+                addLabel={t('ယူနစ် အသစ်')}
+                namePlaceholder={t('ယူနစ်အမည်')}
+              >
+                {(data.units?.length ? data.units : ['ပွဲ']).map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+                {edit.unit && !(data.units || []).includes(edit.unit) && (
+                  <option value={edit.unit}>{edit.unit}</option>
+                )}
+              </AddableSelect>
             </Field>
 
-            <Field label={t('ဌာန')} hint={t('ဘား ပစ္စည်းများ မီးဖိုချောင် KDS တွင် မပြပါ')}>
-              <select
+            <Field label={t('ဌာန')} hint={t('ဌာနအလိုက် KDS တွင် သီးခြား ပြပါမည်')}>
+              <AddableSelect
                 value={edit.station || 'kitchen'}
-                onChange={(e) => setEdit({ ...edit, station: e.target.value })}
+                onChange={(v) => setEdit({ ...edit, station: v })}
+                onAdd={async (name) => {
+                  const created = await api('/stations', {
+                    method: 'POST',
+                    body: JSON.stringify({ name }),
+                  });
+                  await reload();
+                  showToast(t('ဌာန အသစ် ထည့်ပြီးပါပြီ'));
+                  return created.value;
+                }}
+                addLabel={t('ဌာန အသစ်')}
+                namePlaceholder={t('ဌာနအမည်')}
               >
-                <option value="kitchen">{t('မီးဖိုချောင်')}</option>
-                <option value="bar">{t('ဘား')}</option>
-              </select>
+                {stations.map((st) => (
+                  <option key={st.value} value={st.value}>
+                    {stationLabel(stations, st.value, isEn)}
+                  </option>
+                ))}
+              </AddableSelect>
             </Field>
 
             <Field label={t('အရက် (18+)')}>

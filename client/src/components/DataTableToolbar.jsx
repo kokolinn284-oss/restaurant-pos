@@ -220,8 +220,17 @@ export function DataTableToolbar({
                   }
                 >
                   <option value="all">{t('အားလုံး')}</option>
-                  <option value="kitchen">{t('မီးဖိုချောင်')}</option>
-                  <option value="bar">{t('ဘား')}</option>
+                  {(Array.isArray(filterOptions.station)
+                    ? filterOptions.station
+                    : [
+                        { value: 'kitchen', label: t('မီးဖိုချောင်') },
+                        { value: 'bar', label: t('ဘား') },
+                      ]
+                  ).map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
                 </select>
               </label>
             )}

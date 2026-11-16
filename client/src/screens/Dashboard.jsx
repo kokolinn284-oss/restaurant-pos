@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { api, money, today } from '../api.js';
 import { useI18n } from '../i18n.jsx';
-import { Icon, ModalFrame } from '../components/ui.jsx';
+import { Icon, ModalFrame, stationLabel } from '../components/ui.jsx';
 
 const METHOD_KEY = {
   cash: 'လက်ငင်း',
@@ -21,6 +22,20 @@ const METHOD_COLORS = {
 
 export default function Dashboard({ data, go }) {
   const { t, isEn } = useI18n();
+  const stations = data.stations?.length
+    ? data.stations
+    : [
+        { value: 'kitchen', label: t('မီးဖိုချောင်'), label_en: 'Kitchen' },
+        { value: 'bar', label: t('ဘား'), label_en: 'Bar' },
+      ];
+  const countOf = (value) => {
+    const found = (data.stationCounts || []).find((c) => c.station === value);
+    if (found) return found.c;
+    if (value === 'kitchen') return data.kitchenCount || 0;
+    if (value === 'bar') return data.barCount || 0;
+    return 0;
+  };
+  const totalCooking = stations.reduce((s, st) => s + countOf(st.value), 0);
   const [sum, setSum] = useState(null);
   const [catalogModalOpen, setCatalogModalOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -45,6 +60,11 @@ export default function Dashboard({ data, go }) {
     const base = `${origin}/#/catalog`;
     return selectedTableForQr ? `${base}?table=${selectedTableForQr}` : base;
   }, [selectedTableForQr]);
+
+  const qrTable = useMemo(
+    () => (data.tables || []).find(tb => String(tb.id) === String(selectedTableForQr)),
+    [data.tables, selectedTableForQr]
+  );
 
   const copyCatalogLink = () => {
     navigator.clipboard.writeText(catalogUrl).then(() => {
@@ -186,10 +206,17 @@ export default function Dashboard({ data, go }) {
               <span className="scm-title">{t('မီးဖို & ဘား')}</span>
               <span className="scm-icon"><Icon name="fire" size={18} /></span>
             </div>
-            <div className="scm-value">{(data.kitchenCount || 0) + (data.barCount || 0)}</div>
+            <div className="scm-value">{totalCooking}</div>
             <div className="scm-sub">
-              <span className="scm-pill orange">🍳 မီးဖို {data.kitchenCount || 0}</span>
-              <span className="scm-pill cyan">🍹 ဘား {data.barCount || 0}</span>
+              {stations.map((st) => (
+                <span
+                  key={st.value}
+                  className={`scm-pill ${st.value === 'kitchen' ? 'orange' : st.value === 'bar' ? 'cyan' : 'indigo'}`}
+                >
+                  {st.value === 'kitchen' ? '🍳' : st.value === 'bar' ? '🍹' : '🏷'}{' '}
+                  {stationLabel(stations, st.value, isEn)} {countOf(st.value)}
+                </span>
+              ))}
             </div>
           </div>
 
@@ -266,17 +293,17 @@ export default function Dashboard({ data, go }) {
             </div>
           </div>
           <div className="dc-stats">
-            <div className="dcs-item">
-              <span className="dcs-label">{t('မီးဖို')}</span>
-              <strong className="dcs-val text-orange">{data.kitchenCount || 0} {t('ပွဲ')}</strong>
-            </div>
-            <div className="dcs-item">
-              <span className="dcs-label">{t('ဘား')}</span>
-              <strong className="dcs-val text-cyan">{data.barCount || 0} {t('ပွဲ')}</strong>
-            </div>
+            {stations.map((st) => (
+              <div className="dcs-item" key={st.value}>
+                <span className="dcs-label">{stationLabel(stations, st.value, isEn)}</span>
+                <strong className={`dcs-val ${st.value === 'kitchen' ? 'text-orange' : st.value === 'bar' ? 'text-cyan' : ''}`}>
+                  {countOf(st.value)} {t('ပွဲ')}
+                </strong>
+              </div>
+            ))}
             <div className="dcs-item">
               <span className="dcs-label">{t('အော်ဒါ')}</span>
-              <span className="dcs-status">{data.openOrders?.length || 0} {t('စားပွဲ')}</span>
+              <span className="dcs-status">{data.openOrders?.length || 0} {t('စားပွဲများ')}</span>
             </div>
           </div>
           <div className="dc-actions">
@@ -335,7 +362,7 @@ export default function Dashboard({ data, go }) {
                       <div
                         className="wbc-bar-fill"
                         style={{ height: `${wb.heightPct}%` }}
-                        title={`${wb.date}: ${money(wb.total)} (${wb.orders} orders)`}
+                        title={`${wb.date}: ${money(wb.total)} (${wb.orders} ${t('အော်ဒါ')})`}
                       >
                         <span className="wbc-bar-tooltip">{money(wb.total)}</span>
                       </div>
@@ -391,7 +418,7 @@ export default function Dashboard({ data, go }) {
       {/* Operational Feeds (Top Selling Dishes & Recent Orders) */}
       <div className="two-col">
         {/* Top 10 Selling Dishes */}
-        <section className="panel modern-panel">
+        <section className="panel modern-panel feed-panel">
           <div className="panel-head">
             <h3><Icon name="fire" size={16} /> {t('အရောင်းရဆုံး ဟင်းများ')}</h3>
           </div>
@@ -413,6 +440,11 @@ export default function Dashboard({ data, go }) {
               ))}
             </div>
           )}
+          <div className="feed-foot">
+            <button className="btn ghost sm" onClick={() => go('reports')}>
+              <Icon name="chart" size={14} /> {t('အစီရင်ခံစာ ကြည့်')}
+            </button>
+          </div>
         </section>
 
         {/* Recent Orders Activity Feed */}
@@ -425,17 +457,17 @@ export default function Dashboard({ data, go }) {
             <div className="empty">{t('ဒေတာ မရှိသေးပါ')}</div>
           ) : (
             <div className="recent-orders-list">
-              {sum.recentOrders.map(ro => (
+              {sum.recentOrders.slice(0, 6).map(ro => (
                 <div className="recent-order-card" key={ro.id}>
                   <div className="roc-left">
                     <div className="roc-order-no">#{ro.order_no}</div>
                     <div className="roc-meta">
                       <span className="roc-table">
                         <Icon name={ro.type === 'dine_in' ? 'table' : 'box'} size={13} />
-                        {ro.table_name || (ro.type === 'dine_in' ? 'စားပွဲ' : 'ပါဆယ်')}
+                        {ro.table_name || (ro.type === 'dine_in' ? t('စားပွဲ') : t('ပါဆယ်'))}
                       </span>
                       {ro.source === 'online' && (
-                        <span className="roc-online-pill">📱 အွန်လိုင်း</span>
+                        <span className="roc-online-pill">📱 {t('အွန်လိုင်း')}</span>
                       )}
                       <span className="roc-time">{ro.opened_at ? ro.opened_at.slice(11, 16) : ''}</span>
                     </div>
@@ -443,7 +475,7 @@ export default function Dashboard({ data, go }) {
                   <div className="roc-right">
                     <strong className="roc-total">{money(ro.total)}</strong>
                     <span className={`status-pill ${ro.status}`}>
-                      {ro.status === 'open' ? 'ဖွင့်ထား' : ro.status === 'paid' ? 'ရှင်းပြီး' : 'ပယ်ဖျက်'}
+                      {t(ro.status === 'open' ? 'ဖွင့်ထား' : ro.status === 'paid' ? 'ရှင်းပြီး' : 'ပယ်ဖျက်')}
                     </span>
                   </div>
                 </div>
@@ -456,107 +488,100 @@ export default function Dashboard({ data, go }) {
       {/* Online Customer Catalog / QR Code Modal */}
       {catalogModalOpen && (
         <ModalFrame className="catalog-share-modal" onClose={() => setCatalogModalOpen(false)}>
-          <div className="modal-head">
-              <h3>📱 {t('QR မျှဝေရန်')}</h3>
-              <button className="icon-btn" onClick={() => setCatalogModalOpen(false)}>
-                <Icon name="close" size={18} />
-              </button>
+          <div className="csm-hero">
+            <span className="csm-hero-icon"><Icon name="grid" size={20} /></span>
+            <div className="csm-hero-text">
+              <h3>{t('QR မျှဝေရန်')}</h3>
+              <p>{t('QR Code စကင်ဖတ်၍ မီနူးကြည့်ရှုပြီး ဖုန်းမှ တိုက်ရိုက်မှာယူနိုင်ပါသည်')}</p>
             </div>
+            <button className="csm-hero-close" onClick={() => setCatalogModalOpen(false)} aria-label="close">
+              <Icon name="close" size={18} />
+            </button>
+          </div>
 
-            <div className="csm-body">
-              <p className="csm-desc">
-                {t('QR Code စကင်ဖတ်၍ မီနူးကြည့်ရှုပြီး ဖုန်းမှ တိုက်ရိုက်မှာယူနိုင်ပါသည်')}
-              </p>
-
-              {/* Table Selector for Specific QR Code */}
-              <div className="csm-table-filter">
-                <label><b>{t('စားပွဲရွေးရန် (ရွေးချယ်နိုင်သည်)')}</b></label>
-                <select
-                  value={selectedTableForQr}
-                  onChange={e => setSelectedTableForQr(e.target.value)}
-                >
-                  <option value="">-- ဆိုင်အထွေထွေ မီနူး --</option>
-                  {(data.tables || []).map(tb => (
-                    <option key={tb.id} value={tb.id}>
-                      {tb.name} ({tb.zone || 'အပြင်'}) QR
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* URL Display Box */}
-              <div className="csm-url-box">
-                <input type="text" readOnly value={catalogUrl} />
-                <button className="btn sm" onClick={copyCatalogLink}>
-                  <Icon name="copy" size={15} /> {copied ? t('ကူးပြီးပါပြီ!') : t('လင့်ခ် ကူးယူ')}
-                </button>
-              </div>
-
-              {/* Simulated QR Code Card */}
-              <div className="csm-qr-preview">
-                <div className="csm-qr-card">
-                  <div className="csm-qr-shop-name">{data.settings?.shop_name || 'စည်တော်ကြီး စားသောက်ဆိုင်'}</div>
-                  <div className="csm-qr-sub">
-                    {selectedTableForQr
-                      ? `${(data.tables || []).find(t => String(t.id) === String(selectedTableForQr))?.name || 'စားပွဲ'} QR`
-                      : 'ဖုန်းဖြင့် စကင်ဖတ်၍ မီနူးကြည့်ပါ'}
+          <div className="csm-body">
+            <div className="csm-main">
+              <div className="csm-qr-card">
+                <div className="csm-qr-top">
+                  <span className="csm-qr-logo">စည်</span>
+                  <div className="csm-qr-meta">
+                    <div className="csm-qr-shop-name">{data.settings?.shop_name || 'စည်တော်ကြီး စားသောက်ဆိုင်'}</div>
+                    <div className="csm-qr-sub">
+                      {qrTable ? `${qrTable.name}${qrTable.zone ? ` · ${qrTable.zone}` : ''}` : t('ဆိုင်အထွေထွေ မီနူး')}
+                    </div>
                   </div>
-                  
-                  {/* High quality clean vector QR Code graphic representation */}
-                  <div className="qr-code-graphic">
-                    <svg viewBox="0 0 160 160" width="160" height="160" fill="currentColor">
-                      <rect width="160" height="160" fill="white" />
-                      {/* Top Left Finder */}
-                      <rect x="15" y="15" width="40" height="40" fill="black" />
-                      <rect x="22" y="22" width="26" height="26" fill="white" />
-                      <rect x="27" y="27" width="16" height="16" fill="black" />
-                      {/* Top Right Finder */}
-                      <rect x="105" y="15" width="40" height="40" fill="black" />
-                      <rect x="112" y="22" width="26" height="26" fill="white" />
-                      <rect x="117" y="27" width="16" height="16" fill="black" />
-                      {/* Bottom Left Finder */}
-                      <rect x="15" y="105" width="40" height="40" fill="black" />
-                      <rect x="22" y="112" width="26" height="26" fill="white" />
-                      <rect x="27" y="117" width="16" height="16" fill="black" />
-                      {/* Data Pattern */}
-                      <rect x="65" y="20" width="10" height="10" fill="black" />
-                      <rect x="85" y="20" width="10" height="10" fill="black" />
-                      <rect x="65" y="40" width="10" height="10" fill="black" />
-                      <rect x="80" y="50" width="10" height="10" fill="black" />
-                      <rect x="20" y="65" width="10" height="10" fill="black" />
-                      <rect x="40" y="65" width="10" height="10" fill="black" />
-                      <rect x="60" y="65" width="10" height="10" fill="black" />
-                      <rect x="80" y="70" width="10" height="10" fill="black" />
-                      <rect x="100" y="65" width="10" height="10" fill="black" />
-                      <rect x="120" y="65" width="10" height="10" fill="black" />
-                      <rect x="140" y="75" width="10" height="10" fill="black" />
-                      <rect x="65" y="90" width="10" height="10" fill="black" />
-                      <rect x="85" y="90" width="10" height="10" fill="black" />
-                      <rect x="105" y="90" width="10" height="10" fill="black" />
-                      <rect x="125" y="105" width="10" height="10" fill="black" />
-                      <rect x="65" y="110" width="10" height="10" fill="black" />
-                      <rect x="85" y="125" width="10" height="10" fill="black" />
-                      <rect x="105" y="125" width="10" height="10" fill="black" />
-                      <rect x="135" y="135" width="10" height="10" fill="black" />
-                      {/* Logo in center */}
-                      <rect x="66" y="66" width="28" height="28" rx="6" fill="#06b6d4" />
-                      <text x="80" y="86" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle">စည်</text>
-                    </svg>
-                  </div>
+                </div>
 
-                  <div className="csm-qr-hint">Scan with Camera or QR App</div>
+                <div className="csm-qr-frame">
+                  <QRCodeSVG
+                    value={catalogUrl}
+                    size={200}
+                    level="M"
+                    marginSize={2}
+                    bgColor="#ffffff"
+                    fgColor="#0f172a"
+                    title={catalogUrl}
+                  />
+                </div>
+
+                <div className="csm-qr-hint">
+                  <Icon name="camera" size={13} /> {t('ဖုန်းဖြင့် စကင်ဖတ်၍ မီနူးကြည့်ပါ')}
                 </div>
               </div>
 
-              <div className="csm-actions">
-                <button className="btn outline" onClick={copyCatalogLink}>
-                  <Icon name="copy" size={16} /> {t('လင့်ခ် ကူးယူမည်')}
-                </button>
-                <button className="btn success" onClick={openCustomerCatalog}>
-                  <Icon name="forward" size={16} /> {t('ကတ်တလောက် ဖွင့်ရန်')}
-                </button>
+              <div className="csm-controls">
+                <label className="csm-field">
+                  <span>{t('စားပွဲရွေးရန် (ရွေးချယ်နိုင်သည်)')}</span>
+                  <select
+                    value={selectedTableForQr}
+                    onChange={e => setSelectedTableForQr(e.target.value)}
+                  >
+                    <option value="">{t('ဆိုင်အထွေထွေ မီနူး')}</option>
+                    {(data.tables || []).map(tb => (
+                      <option key={tb.id} value={tb.id}>
+                        {tb.name} ({tb.zone || 'အပြင်'}) QR
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="csm-field">
+                  <span>{t('မီနူး လင့်ခ်')}</span>
+                  <input
+                    className="csm-url-input"
+                    type="text"
+                    readOnly
+                    value={catalogUrl}
+                    onFocus={e => e.target.select()}
+                  />
+                </div>
+
+                <div className="csm-perks">
+                  <span><Icon name="menu" size={13} /> {t('မီနူး ကြည့်ရှုနိုင်သည်')}</span>
+                  <span><Icon name="cart" size={13} /> {t('ဖုန်းမှ တိုက်ရိုက် မှာယူနိုင်သည်')}</span>
+                  <span><Icon name="download" size={13} /> {t('App အဖြစ် သိမ်းထားနိုင်သည်')}</span>
+                </div>
+
+                <div className="csm-install-note">
+                  <span className="csm-install-icon"><Icon name="download" size={16} /></span>
+                  <div>
+                    <strong>{t('ဖောက်သည်များ ဖုန်းတွင် App အဖြစ် သိမ်းထားနိုင်သည်')}</strong>
+                    <span>{t('ဖုန်း home screen မှ မီနူးကို အမြန်ဖွင့်နိုင်ပါသည်။')}</span>
+                  </div>
+                </div>
               </div>
             </div>
+
+            <div className="csm-actions">
+              <button className="btn outline" onClick={copyCatalogLink}>
+                <Icon name={copied ? 'check' : 'copy'} size={16} />
+                {copied ? t('ကူးပြီးပါပြီ!') : t('လင့်ခ် ကူးယူ')}
+              </button>
+              <button className="btn success" onClick={openCustomerCatalog}>
+                <Icon name="forward" size={16} /> {t('ကတ်တလောက် ဖွင့်ရန်')}
+              </button>
+            </div>
+          </div>
         </ModalFrame>
       )}
     </div>

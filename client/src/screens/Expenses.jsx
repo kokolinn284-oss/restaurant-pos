@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, money, today } from '../api.js';
 import { useI18n } from '../i18n.jsx';
-import { Icon, Modal, Field, Empty, SearchBox } from '../components/ui.jsx';
+import { Icon, Modal, Field, Empty, SearchBox, AddableSelect } from '../components/ui.jsx';
 import { downloadCsv } from '../csv.js';
 
 const CATS = ['ပစ္စည်းဝယ်ခြင်း', 'လစာ', 'ဆိုင်ငှားခ', 'မီတာ/ရေ', 'ပြင်ဆင်မှု', 'သယ်ယူပို့ဆောင်ခ', 'အခြား'];
@@ -293,9 +293,20 @@ export default function Expenses({ staff, reload, showToast }) {
               <input type="date" value={form.spent_on} onChange={e => setForm({ ...form, spent_on: e.target.value })} />
             </Field>
             <Field label={t('အမျိုးအစား')}>
-              <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
+              <AddableSelect
+                value={form.category}
+                onChange={(v) => setForm({ ...form, category: v })}
+                onAdd={async (name) => {
+                  await api('/expense-categories', { method: 'POST', body: JSON.stringify({ name }) });
+                  await loadCats();
+                  showToast(t('အမျိုးအစား အသစ် ထည့်ပြီးပါပြီ'));
+                  return name;
+                }}
+                addLabel={t('အမျိုးအစား အသစ်')}
+                namePlaceholder={t('အမျိုးအစားအမည်')}
+              >
                 {formCats.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+              </AddableSelect>
             </Field>
             <Field label={t('ပေးချေသူ')}>
               <input value={form.vendor} onChange={e => setForm({ ...form, vendor: e.target.value })} />

@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api, money } from '../api.js';
 import { useI18n } from '../i18n.jsx';
-import { Icon, Modal, Field } from '../components/ui.jsx';
+import { Icon, Modal, Field, stationLabel } from '../components/ui.jsx';
 import Receipt from '../components/Receipt.jsx';
 import { getFoodImage } from '../foodPresets.js';
 import {
@@ -12,7 +12,7 @@ import {
 const TINTS = ['#0e9f6e', '#f59e0b', '#5b5bd6', '#0d94d2', '#ef4444', '#8b5cf6'];
 
 export default function Order({ orderId, data, reload, showToast, onBack, openOrder, online = true, drafts = [], syncNow }) {
-  const { t } = useI18n();
+  const { t, isEn } = useI18n();
   const [order, setOrder] = useState(null);
   const [cat, setCat] = useState('all');
   const [q, setQ] = useState('');
@@ -22,6 +22,7 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
   const [receipt, setReceipt] = useState(null);
   const [splitMode, setSplitMode] = useState(false);
   const [selected, setSelected] = useState([]);
+  const catsRef = useRef(null);
 
   const isLocal = String(orderId || '').startsWith('offline-');
 
@@ -54,6 +55,69 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
     return () => window.removeEventListener('keydown', onKey);
   }, [cartOpen]);
   useEffect(() => {
+    const el = catsRef.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      if (e.deltaY === 0 || e.shiftKey) return;
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      if (el.scrollWidth <= el.clientWidth + 1) return;
+      const step = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      const atStart = el.scrollLeft <= 0 && step < 0;
+      const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1 && step > 0;
+      if (atStart || atEnd) return;
+      e.preventDefault();
+      el.scrollLeft += step;
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [order]);
+  useEffect(() => {
+    const el = catsRef.current;
+    if (!el) return;
+    let down = false, moved = false, startX = 0, startLeft = 0, quietUntil = 0;
+    const onDown = (e) => {
+      if (e.pointerType !== 'mouse' || e.button !== 0) return;
+      if (el.scrollWidth <= el.clientWidth + 1) return;
+      down = true;
+      moved = false;
+      startX = e.clientX;
+      startLeft = el.scrollLeft;
+    };
+    const onMove = (e) => {
+      if (!down) return;
+      const dx = e.clientX - startX;
+      if (!moved) {
+        if (Math.abs(dx) < 6) return;
+        moved = true;
+        el.classList.add('dragging');
+      }
+      e.preventDefault();
+      el.scrollLeft = startLeft - dx;
+    };
+    const onUp = () => {
+      if (!down) return;
+      down = false;
+      el.classList.remove('dragging');
+      if (moved) quietUntil = Date.now() + 260;
+      moved = false;
+    };
+    const onClick = (e) => {
+      if (Date.now() < quietUntil) { e.preventDefault(); e.stopPropagation(); }
+    };
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('click', onClick, true);
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('click', onClick, true);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+  }, [order]);
+  useEffect(() => {
     if (isLocal) return;
     const timer = setInterval(loadOrder, 12000);
     return () => clearInterval(timer);
@@ -61,8 +125,12 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
 
   const settings = data.settings;
   const categories = data.categories;
-  const items = data.items.filter(i => i.available && (cat === 'all' || i.category_id === cat)
-    && (!q || i.name.toLowerCase().includes(q.toLowerCase())));
+  const saleItems = useMemo(() => (data.items || []).filter(i => i.available), [data.items]);
+  const items = useMemo(() => saleItems.filter(i => (cat === 'all' || i.category_id === cat)
+    && (!q || i.name.toLowerCase().includes(q.toLowerCase()))), [saleItems, cat, q]);
+  const catCount = (id) => id === 'all'
+    ? saleItems.length
+    : saleItems.filter(i => i.category_id === id).length;
 
   const activeItems = order?.items?.filter(i => i.status !== 'cancelled') || [];
   const itemAmount = (it) => {
@@ -236,20 +304,43 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
     <div className="order-screen">
       <div className="menu-pane">
         <div className="menu-tools">
-          <div className="search">
-            <Icon name="search" size={18} />
-            <input placeholder={t('ဟင်း ရှာရန်…')} value={q} onChange={e => setQ(e.target.value)} />
-            {q && (
-              <button className="link-btn" onClick={() => setQ('')} aria-label={t('ဖျက်')} title={t('ဖျက်')}>
-                <Icon name="close" size={16} />
+          <div className="pos-tools">
+            <div className="pos-tools-top">
+              <div className="search">
+                <Icon name="search" size={18} />
+                <input placeholder={t('ဟင်း ရှာရန်…')} value={q} onChange={e => setQ(e.target.value)}
+                  aria-label={t('ဟင်း ရှာရန်…')} />
+                {q ? (
+                  <button className="search-clear" onClick={() => setQ('')} aria-label={t('ဖျက်')} title={t('ဖျက်')}>
+                    <Icon name="close" size={14} />
+                  </button>
+                ) : null}
+              </div>
+              <span className={`pos-count ${q ? 'on' : ''}`}>
+                <strong>{items.length}</strong>
+                <span>{t('မျိုး')}</span>
+              </span>
+            </div>
+            <div className="pos-cats" ref={catsRef} role="group" aria-label={t('အမျိုးအစား')}>
+              <button aria-pressed={cat === 'all'} className={`pos-chip ${cat === 'all' ? 'on' : ''}`}
+                onClick={() => setCat('all')}>
+                <span className="pos-chip-dot" />
+                <span className="pos-chip-name">{t('အားလုံး')}</span>
+                <span className="pos-chip-n">{saleItems.length}</span>
               </button>
-            )}
-          </div>
-          <div className="chips">
-            <button className={`chip ${cat === 'all' ? 'on' : ''}`} onClick={() => setCat('all')}>{t('အားလုံး')}</button>
-            {categories.map(c => (
-              <button key={c.id} className={`chip ${cat === c.id ? 'on' : ''}`} onClick={() => setCat(c.id)}>{c.name}</button>
-            ))}
+              {categories.map(c => {
+                const n = catCount(c.id);
+                return (
+                  <button key={c.id} aria-pressed={cat === c.id}
+                    className={`pos-chip ${cat === c.id ? 'on' : ''} ${n === 0 ? 'is-empty' : ''}`}
+                    style={{ '--dot': catTint(c.id) }} onClick={() => setCat(c.id)}>
+                    <span className="pos-chip-dot" />
+                    <span className="pos-chip-name">{c.name}</span>
+                    <span className="pos-chip-n">{n}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -260,11 +351,12 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
             return (
               <button key={i.id} className={`item-card ${i.is_alcohol ? 'alc' : ''} has-img`}
                 style={{ '--tint': i.is_alcohol ? '#ef4444' : catTint(i.category_id) }}
-                onClick={() => addItem(i)} disabled={!isOpen}>
+                onClick={() => addItem(i)} disabled={!isOpen} title={i.name}
+                aria-label={`${i.name} · ${money(i.price)}`}>
                 <div className="item-card-media">
                   <img src={imgUrl} alt="" className="item-card-img" loading="lazy" />
-                  {i.is_alcohol && <span className="alc-flag">18+</span>}
-                  {i.code && <span className="item-code-badge">{i.code}</span>}
+                  {i.is_alcohol ? <span className="alc-flag">18+</span> : null}
+                  {i.code ? <span className="item-code-badge">{i.code}</span> : null}
                 </div>
                 <div className="item-card-content">
                   <span className="item-name">{i.name}</span>
@@ -276,7 +368,17 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
               </button>
             );
           })}
-          {items.length === 0 && <div className="empty span-all">{t('ဟင်း မတွေ့ပါ')}</div>}
+          {items.length === 0 && (
+            <div className="empty span-all pos-empty">
+              <Icon name="search" size={22} />
+              <span>{t('ဟင်း မတွေ့ပါ')}</span>
+              {(q || cat !== 'all') && (
+                <button className="link-btn" onClick={() => { setQ(''); setCat('all'); }}>
+                  {t('ရှာဖွေမှု အားလုံး ရှင်းလင်းမည်')}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -284,9 +386,12 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
         <div className="cart-sheet-handle mobile-only" onClick={() => setCartOpen(false)}><span /></div>
         <div className="cart-head">
           <div>
-            <h3>{title}</h3>
+            <div className="cart-title-row">
+              <h3>{title}</h3>
+              <span className="cart-count-pill">{activeItems.length} {t('မျိုး')}</span>
+            </div>
             <div className="order-tag">
-              #{order.order_no} · {t('ထိုင်ခုံ')} {order.guests} · {activeItems.length} {t('မျိုး')}
+              #{order.order_no} · {t('ထိုင်ခုံ')} {order.guests}
               {isLocal && (
                 <span className={`tag ${online ? 'local' : 'offline'}`}>
                   {online ? t('local') : t('အော့ဖ်လိုင်း')}
@@ -305,29 +410,45 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
         )}
 
         <div className="cart-items">
-          {activeItems.length === 0 && <div className="empty" style={{ margin: 14 }}>{t('ပစ္စည်း ရွေးချယ်ပါ')}</div>}
-          {activeItems.map(it => (
+          {activeItems.length === 0 ? (
+            <div className="cart-empty">
+              <span className="cart-empty-ico"><Icon name="cart" size={26} /></span>
+              <strong>{t('ပစ္စည်း ရွေးချယ်ပါ')}</strong>
+              <span className="cart-empty-hint">{t('ဟင်းလျာကို နှိပ်ပြီး ဘီလ်ထဲ ထည့်ပါ')}</span>
+            </div>
+          ) : activeItems.map(it => (
             <div key={it.id} className="cart-item">
               {splitMode && (
                 <input type="checkbox" className="split-check" checked={selected.includes(it.id)}
                   onChange={() => toggleSel(it.id)} aria-label={t('ခွဲရန် ရွေး')} />
               )}
               <div className="ci-main">
-                <div className="ci-name">{it.name}
-                  {it.is_alcohol && <span className="tag alc">18+</span>}
-                  {it.status === 'cooking' && <span className="tag">{it.station === 'bar' ? t('ဘား') : t('မီးဖိုချောင်')}</span>}
-                  {it.status === 'served' && <span className="tag ok">{t('ကျွေးပြီး')}</span>}
+                <div className="ci-top">
+                  <span className="ci-name">{it.name}</span>
+                  <span className="ci-amount">{money(itemAmount(it))}</span>
                 </div>
+                {(it.is_alcohol || it.status === 'cooking' || it.status === 'served') && (
+                  <div className="ci-tags">
+                    {it.is_alcohol ? <span className="tag alc">18+</span> : null}
+                    {it.status === 'cooking' ? <span className="tag">{stationLabel(data?.stations, it.station, isEn)}</span> : null}
+                    {it.status === 'served' ? <span className="tag ok">{t('ကျွေးပြီး')}</span> : null}
+                  </div>
+                )}
                 <div className="ci-sub">
-                  <span>{money(it.price)}</span>
-                  <button className="qty-btn" onClick={() => changeQty(it, -0.5)} aria-label="Decrease quantity">−</button>
-                  <span className="qty">{it.qty}</span>
-                  <button className="qty-btn" onClick={() => changeQty(it, 0.5)} aria-label="Increase quantity">+</button>
-                  <button className="link-btn" onClick={() => setEditItem({ ...it })}><Icon name="edit" size={13} /> {t('မှတ်ချက်')}</button>
+                  <span className="ci-price">{money(it.price)}</span>
+                  <div className="qty-stepper">
+                    <button className="qty-btn" onClick={() => changeQty(it, -0.5)}
+                      aria-label={t('အရေအတွက် လျှော့')} title={t('အရေအတွက် လျှော့')}>−</button>
+                    <span className="qty">{it.qty}</span>
+                    <button className="qty-btn" onClick={() => changeQty(it, 0.5)}
+                      aria-label={t('အရေအတွက် တိုး')} title={t('အရေအတွက် တိုး')}>+</button>
+                  </div>
+                  <button className="link-btn ci-note-btn" onClick={() => setEditItem({ ...it })}>
+                    <Icon name="edit" size={13} /> {t('မှတ်ချက်')}
+                  </button>
                 </div>
                 {it.note && <div className="ci-note">{it.note}</div>}
               </div>
-              <div className="ci-amount">{money(itemAmount(it))}</div>
             </div>
           ))}
         </div>
@@ -364,9 +485,16 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
         </div>
       </aside>
 
-      <button className="cart-fab mobile-only" onClick={() => setCartOpen(true)}>
-        <span>{t('ဟင်းလျာ')} · {activeItems.length} {t('မျိုး')}</span>
-        <strong>{money(subtotal)}</strong>
+      <button className="cart-fab mobile-only" onClick={() => setCartOpen(true)}
+        aria-label={`${t('ဟင်းလျာ')} · ${activeItems.length} ${t('မျိုး')}`}>
+        <span className="fab-left">
+          <span className="fab-ico"><Icon name="cart" size={18} /></span>
+          <span className="fab-label">{activeItems.length} {t('မျိုး')}</span>
+        </span>
+        <span className="fab-right">
+          {money(subtotal)}
+          <Icon name="chevronRight" size={17} />
+        </span>
       </button>
 
       {editItem && (

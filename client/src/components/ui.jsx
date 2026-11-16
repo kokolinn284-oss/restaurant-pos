@@ -281,3 +281,117 @@ export function SearchBox({ value, onChange, placeholder, onSubmit, className = 
     </div>
   );
 }
+
+const FALLBACK_STATIONS = {
+  kitchen: { label: 'မီးဖိုချောင်', label_en: 'Kitchen' },
+  bar: { label: 'ဘား', label_en: 'Bar' },
+};
+
+export function stationLabel(stations, value, isEn = false) {
+  const v = value || 'kitchen';
+  const st = (stations || []).find(s => s.value === v);
+  if (st) return (isEn && st.label_en) ? st.label_en : (st.label || st.value);
+  const fb = FALLBACK_STATIONS[v];
+  if (fb) return isEn ? fb.label_en : fb.label;
+  return v;
+}
+
+export function AddableSelect({
+  value,
+  onChange,
+  onAdd,
+  children,
+  addLabel,
+  namePlaceholder,
+  addText,
+  className = '',
+  disabled = false,
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const id = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [open]);
+
+  const close = () => {
+    setOpen(false);
+    setName('');
+    setError('');
+  };
+
+  const submit = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError(t('အမည် ထည့်ပါ'));
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const next = await onAdd(trimmed);
+      if (next !== undefined && next !== null) onChange(String(next));
+      close();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addTitle = addLabel || t('အသစ် ထည့်');
+
+  return (
+    <div className={`addable-select ${className}`.trim()}>
+      <div className="addable-row">
+        <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
+          {children}
+        </select>
+        {onAdd && (
+          <button
+            type="button"
+            className={`addable-btn ${open ? 'on' : ''}`}
+            onClick={() => (open ? close() : setOpen(true))}
+            aria-label={addTitle}
+            title={addTitle}
+            aria-expanded={open}
+          >
+            <Icon name={open ? 'close' : 'plus'} size={16} />
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="addable-inline">
+          <input
+            ref={inputRef}
+            value={name}
+            placeholder={namePlaceholder || t('အမည် အသစ်')}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                submit();
+              }
+              if (e.key === 'Escape') close();
+            }}
+          />
+          <button
+            type="button"
+            className="btn sm"
+            onClick={submit}
+            disabled={busy || !name.trim()}
+          >
+            <Icon name="check" size={14} /> {addText || t('ထည့်မည်')}
+          </button>
+          {error && <p className="addable-error">{error}</p>}
+        </div>
+      )}
+    </div>
+  );
+}

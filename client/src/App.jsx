@@ -242,7 +242,12 @@ export default function App() {
   const badge = (key) => {
     if (!data) return 0;
     if (key === 'tables') return data.openOrders?.length || 0;
-    if (key === 'kitchen') return (data.kitchenCount || 0) + (data.barCount || 0);
+    if (key === 'kitchen') {
+      if (Array.isArray(data.stationCounts) && data.stationCounts.length) {
+        return data.stationCounts.reduce((s, c) => s + (Number(c.c) || 0), 0);
+      }
+      return (data.kitchenCount || 0) + (data.barCount || 0);
+    }
     if (key === 'inventory') return data.lowStockCount || 0;
     return 0;
   };
@@ -347,7 +352,14 @@ export default function App() {
               <span className={`ctx-ico t-${pageNav.tone}`}><Icon name={pageNav.icon} size={17} /></span>
             )}
             <div className="page-id">
-              <div className="page-title">{view === 'order' ? t('အရောင်း') : t(pageNav.label)}</div>
+              <div className="page-title">
+                {view === 'order' ? t('အရောင်း') : (
+                  <>
+                    <span className="pt-full">{t(pageNav.label)}</span>
+                    <span className="pt-short">{t(pageNav.short)}</span>
+                  </>
+                )}
+              </div>
               <div className="page-sub">
                 <span className="date-chip">
                   <Icon name="calendar" size={13} />
