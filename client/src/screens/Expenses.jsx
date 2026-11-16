@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, money, today } from '../api.js';
 import { useI18n } from '../i18n.jsx';
-import { Icon, Modal, Field, Empty, SearchBox, AddableSelect } from '../components/ui.jsx';
+import { Icon, Modal, Field, Empty, SearchBox, AddableSelect, DateRangeField } from '../components/ui.jsx';
 import { downloadCsv } from '../csv.js';
 
 const CATS = ['ပစ္စည်းဝယ်ခြင်း', 'လစာ', 'ဆိုင်ငှားခ', 'မီတာ/ရေ', 'ပြင်ဆင်မှု', 'သယ်ယူပို့ဆောင်ခ', 'အခြား'];
@@ -23,9 +23,6 @@ export default function Expenses({ staff, reload, showToast }) {
   const [q, setQ] = useState('');
   const [category, setCategory] = useState('');
   const [cats, setCats] = useState([]);
-  const [catOpen, setCatOpen] = useState(false);
-  const [newCat, setNewCat] = useState('');
-  const [editCat, setEditCat] = useState(null);
   const [data, setData] = useState({ rows: [], count: 0, total: 0, cash: 0, bank: 0, byCategory: [] });
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState(newForm);
@@ -69,42 +66,6 @@ export default function Expenses({ staff, reload, showToast }) {
     } catch (e) { showToast(e.message); }
   };
 
-  const addCat = async () => {
-    const name = newCat.trim();
-    if (!name) return showToast(t('အမျိုးအစား အမည် ထည့်ပါ'));
-    try {
-      await api('/expense-categories', { method: 'POST', body: JSON.stringify({ name }) });
-      setNewCat('');
-      await loadCats();
-      showToast(t('သိမ်းပြီးပါပြီ'));
-    } catch (e) { showToast(e.message); }
-  };
-
-  const renameCat = async () => {
-    if (!editCat) return;
-    const name = editCat.name.trim();
-    if (!name) return showToast(t('အမျိုးအစား အမည် ထည့်ပါ'));
-    try {
-      await api(`/expense-categories/${editCat.id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
-      const renamedCurrent = category === editCat.old;
-      setEditCat(null);
-      await loadCats();
-      if (renamedCurrent) setCategory(name);
-      else await load();
-      showToast(t('သိမ်းပြီးပါပြီ'));
-    } catch (e) { showToast(e.message); }
-  };
-
-  const removeCat = async (c) => {
-    if (!window.confirm(`${t('ဖျက်မှာ သေချာပါသလား?')}\n${c.name}`)) return;
-    try {
-      await api(`/expense-categories/${c.id}`, { method: 'DELETE' });
-      if (category === c.name) setCategory('');
-      await loadCats();
-      showToast(t('ဖျက်ပြီးပါပြီ'));
-    } catch (e) { showToast(e.message); }
-  };
-
   const exportCsv = () => {
     downloadCsv(`expenses-${from}_${to}.csv`,
       [t('ရက်စွဲ'), t('အမျိုးအစား'), t('ပေးချေသူ'), t('ငွေပေးချေမှု'), t('မှတ်ချက်'), t('ပမာဏ'), t('ဝန်ထမ်း')],
@@ -120,17 +81,12 @@ export default function Expenses({ staff, reload, showToast }) {
 
   return (
     <div className="stack">
-      <div className="page-head">
+      <div className="page-head inline">
         <div>
           <h2>{t('အသုံးစရိတ်')}</h2>
           <p className="muted small">{t('ဆိုင်မှ ထွက်ငွေ — ပစ္စည်းဝယ်၊ လစာ၊ ငှားခ စသည်ဖြင့် မှတ်တမ်းတင်ပါ')}</p>
         </div>
         <div className="row gap">
-          {canManage && (
-            <button className="btn ghost" onClick={() => { setNewCat(''); setEditCat(null); setCatOpen(true); }}>
-              <Icon name="tag" size={16} /> {t('အမျိုးအစား စီမံ')}
-            </button>
-          )}
           <button className="btn ghost" onClick={exportCsv} disabled={!data.rows.length}>
             <Icon name="download" size={16} /> <span className="hide-mobile">CSV</span>
           </button>
@@ -140,33 +96,35 @@ export default function Expenses({ staff, reload, showToast }) {
         </div>
       </div>
 
-      <div className="toolbar">
-        <div className="toolbar-filters">
-          <div className="date-range">
-            <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
-            <span className="date-sep">~</span>
-            <input type="date" value={to} onChange={e => setTo(e.target.value)} />
+      <div className="data-toolbar-wrapper">
+        <div className="data-toolbar single-row">
+          <div className="toolbar-search-group">
+            <SearchBox
+              value={q}
+              onChange={setQ}
+              onSubmit={load}
+              placeholder={t('ပေးချေသူ / မှတ်ချက် ရှာရန်…')}
+            />
+            <button className="btn ghost icon-text toolbar-filter-btn toolbar-search-submit" onClick={load}
+              aria-label={t('ရှာမည်')} title={t('ရှာမည်')}>
+              <Icon name="search" size={15} />
+              <span className="hide-mobile">{t('ရှာမည်')}</span>
+            </button>
           </div>
-          <select value={category} onChange={e => setCategory(e.target.value)} className="cat-select">
-            <option value="">{t('အားလုံး')}</option>
-            {catOptions.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
-        <div className="toolbar-search">
-          <SearchBox
-            value={q}
-            onChange={setQ}
-            onSubmit={load}
-            placeholder={t('ပေးချေသူ / မှတ်ချက် ရှာရန်…')}
-          />
-          <button className="btn search-submit" onClick={load} aria-label={t('ရှာမည်')} title={t('ရှာမည်')}>
-            <Icon name="search" size={15} />
-            <span className="hide-mobile">{t('ရှာမည်')}</span>
-          </button>
+          <DateRangeField from={from} to={to} onFrom={setFrom} onTo={setTo} />
+          <div className="toolbar-end">
+            <div className="category-select-wrapper toolbar-select">
+              <Icon name="tag" size={15} />
+              <select value={category} onChange={e => setCategory(e.target.value)} aria-label={t('အမျိုးအစား')}>
+                <option value="">{t('အားလုံး')}</option>
+                {catOptions.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="stat-grid fluid">
+      <div className="stat-grid compact">
         <div className="stat-card rose">
           <span>{t('စုစုပေါင်း အသုံးစရိတ်')}</span>
           <strong>{money(data.total)}</strong>
@@ -183,21 +141,6 @@ export default function Expenses({ staff, reload, showToast }) {
           <small className="muted">{t('ငွေပေးချေမှု')}</small>
         </div>
       </div>
-
-      <section className="panel">
-        <div className="panel-head"><h3><Icon name="cash" size={16} /> {t('အသုံးစရိတ် အမျိုးအစား')}</h3></div>
-        {data.byCategory.length === 0 ? <div className="empty">{t('ဒေတာ မရှိပါ')}</div> : (
-          <div className="bars">
-            {data.byCategory.map(c => (
-              <div className="bar-row" key={c.category || '—'}>
-                <span>{c.category || t('အခြား')}</span>
-                <div className="bar amber"><i style={{ width: `${data.total ? Math.max(3, c.amount / data.total * 100) : 0}%` }} /></div>
-                <b>{money(c.amount)}</b>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
 
       <section className="panel">
         <div className="panel-head"><h3><Icon name="receipt" size={16} /> {t('အသုံးစရိတ် မှတ်တမ်း')}</h3></div>
@@ -238,50 +181,6 @@ export default function Expenses({ staff, reload, showToast }) {
           </div>
         )}
       </section>
-
-      {catOpen && (
-        <Modal title={t('အမျိုးအစား စီမံ')} onClose={() => setCatOpen(false)}
-          footer={<button className="btn" onClick={() => setCatOpen(false)}>{t('ပိတ်')}</button>}>
-          <div className="row gap">
-            <input value={newCat} placeholder={t('အမျိုးအစား အသစ်')}
-              onChange={e => setNewCat(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') addCat(); }} />
-            <button className="btn" onClick={addCat} disabled={!newCat.trim()}>{t('ပေါင်း')}</button>
-          </div>
-          <div className="list mt-12">
-            {cats.length === 0 ? <div className="empty">{t('ဒေတာ မရှိပါ')}</div> : cats.map(c => (
-              editCat?.id === c.id ? (
-                <div className="list-row static" key={c.id}>
-                  <div className="grow">
-                    <input autoFocus className="w-full" value={editCat.name}
-                      onChange={e => setEditCat({ ...editCat, name: e.target.value })}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') renameCat();
-                        if (e.key === 'Escape') setEditCat(null);
-                      }} />
-                  </div>
-                  <button className="btn sm" onClick={renameCat}>{t('သိမ်းမည်')}</button>
-                  <button className="btn sm ghost" onClick={() => setEditCat(null)}>{t('မလုပ်တော့')}</button>
-                </div>
-              ) : (
-                <div className="list-row static" key={c.id}>
-                  <div className="grow">
-                    <strong>{c.name}</strong>
-                    <small className="muted">{c.count} {t('မှတ်တမ်း')}</small>
-                  </div>
-                  <button className="icon-btn act-edit" onClick={() => setEditCat({ id: c.id, name: c.name, old: c.name })}
-                    aria-label={t('ပြင်')} title={t('ပြင်')}>
-                    <Icon name="edit" size={15} />
-                  </button>
-                  <button className="icon-btn act-delete" onClick={() => removeCat(c)} aria-label={t('ဖျက်')} title={t('ဖျက်')}>
-                    <Icon name="trash" size={15} />
-                  </button>
-                </div>
-              )
-            ))}
-          </div>
-        </Modal>
-      )}
 
       {addOpen && (
         <Modal title={t('အသုံးစရိတ် ထည့်')} onClose={() => setAddOpen(false)} footer={<>

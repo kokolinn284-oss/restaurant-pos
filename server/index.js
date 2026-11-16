@@ -174,6 +174,7 @@ app.post('/api/auth/logout', (req, res) => {
 
 const WAITER_DENY = [
   ['*', /^\/(shifts|reports|settings|backup|staff|credits|expenses|expense-categories)(\/|$)/],
+  ['POST|PATCH|DELETE', /^\/payment-methods(\/|$)/],
   ['POST', /^\/orders\/\d+\/(pay|void)$/],
   ['POST|PATCH|DELETE', /^\/(items|categories|inventory|promotions|tables|stations|menu-units)(\/|$)/]
 ];
@@ -181,6 +182,7 @@ const CASHIER_DENY = [
   ['*', /^\/(backup|staff)(\/|$)/],
   ['POST|PATCH|DELETE', /^\/settings(\/|$)/],
   ['POST|PATCH|DELETE', /^\/expense-categories(\/|$)/],
+  ['POST|PATCH|DELETE', /^\/payment-methods(\/|$)/],
   ['DELETE', /^\/(items|categories|tables|promotions|expenses)(\/|$)/]
 ];
 function canAccess(role, method, reqPath) {
@@ -778,12 +780,12 @@ app.get('/api/orders/history', (req, res) => {
   const args = [from, to];
   if (status) { where.push('o.status = ?'); args.push(status); }
   if (q) {
-    where.push('(o.order_no LIKE ? OR t.name LIKE ?)');
-    args.push(`%${q}%`, `%${q}%`);
+    where.push('(o.order_no LIKE ? OR t.name LIKE ? OR o.customer_name LIKE ? OR o.customer_phone LIKE ?)');
+    args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
   }
   res.json(db.prepare(`
     SELECT o.id, o.order_no, o.type, o.status, o.total, o.subtotal, o.discount, o.guests,
-           o.opened_at, o.closed_at, t.name AS table_name,
+           o.opened_at, o.closed_at, o.customer_name, t.name AS table_name,
            (SELECT COUNT(*) FROM order_items i WHERE i.order_id = o.id AND i.status != 'cancelled') AS item_count
     FROM orders o LEFT JOIN tables t ON t.id = o.table_id
     WHERE ${where.join(' AND ')}
@@ -1203,8 +1205,9 @@ app.get('/api/reports/summary', (req, res) => {
   const tax = orders.reduce((s, o) => s + o.tax, 0);
   const service = orders.reduce((s, o) => s + o.service, 0);
   const byMethod = ids.length ? db.prepare(`
-    SELECT method, SUM(amount) AS amount, COUNT(*) AS count FROM payments
-    WHERE order_id IN (${ids.map(() => '?').join(',')}) GROUP BY method ORDER BY amount DESC
+    SELECT p.method, COALESCE(m.name, p.method) AS method_name, SUM(p.amount) AS amount, COUNT(*) AS count
+    FROM payments p LEFT JOIN payment_methods m ON m.code = p.method
+    WHERE p.order_id IN (${ids.map(() => '?').join(',')}) GROUP BY p.method, m.name ORDER BY amount DESC
   `).all(...ids) : [];
   const topItems = ids.length ? db.prepare(`
     SELECT name, SUM(qty) AS qty, SUM(price*qty) AS amount FROM order_items
@@ -1454,7 +1457,7 @@ app.post('/api/inventory/bulk-import', (req, res) => {
 
 app.get('/api/expense-categories', (req, res) => {
   res.json(db.prepare(`
-    SELECT c.id, c.name, COUNT(e.id) AS count
+    SELECT c.id, c.name, COUNT(e.id) AS count, COALESCE(SUM(e.amount), 0) AS amount
     FROM expense_categories c LEFT JOIN expenses e ON e.category = c.name
     GROUP BY c.id ORDER BY c.id
   `).all());
@@ -1557,6 +1560,61 @@ app.delete('/api/expenses/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+/* ---------------- payment methods (ငွေချေမျိုးအစားများ) ---------------- */
+app.get('/api/payment-methods', (req, res) => {
+  res.json(db.prepare(`
+    SELECT m.id, m.code, m.name, m.sort,
+           (SELECT COUNT(*) FROM payments p WHERE p.method = m.code) AS count,
+           (SELECT COALESCE(SUM(p.amount), 0) FROM payments p WHERE p.method = m.code) AS amount
+    FROM payment_methods m ORDER BY m.sort, m.id
+  `).all());
+});
+
+app.post('/api/payment-methods', (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'အမျိုးအစား အမည် ထည့်ပါ' });
+  if (name.length > 40) return res.status(400).json({ error: 'အမည် ရှည်လွန်းနေပါသည်' });
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'pm';
+  let code = base;
+  for (let n = 2; db.prepare('SELECT 1 FROM payment_methods WHERE code = ?').get(code); n++) code = `${base}-${n}`;
+  const sort = db.prepare('SELECT COALESCE(MAX(sort), 0) AS s FROM payment_methods').get().s + 10;
+  try {
+    const r = db.prepare('INSERT INTO payment_methods (code, name, sort) VALUES (?, ?, ?)').run(code, name, sort);
+    broadcast('payments');
+    res.json({ ok: true, id: Number(r.lastInsertRowid), code });
+  } catch {
+    res.status(409).json({ error: 'အမျိုးအစား ရှိပြီးသားပါ' });
+  }
+});
+
+app.patch('/api/payment-methods/:id', (req, res) => {
+  const cur = db.prepare('SELECT * FROM payment_methods WHERE id = ?').get(Number(req.params.id));
+  if (!cur) return res.status(404).json({ error: 'အမျိုးအစား မတွေ့ပါ' });
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'အမျိုးအစား အမည် ထည့်ပါ' });
+  if (name.length > 40) return res.status(400).json({ error: 'အမည် ရှည်လွန်းနေပါသည်' });
+  try {
+    db.prepare('UPDATE payment_methods SET name = ? WHERE id = ?').run(name, cur.id);
+  } catch {
+    return res.status(409).json({ error: 'အမျိုးအစား ရှိပြီးသားပါ' });
+  }
+  broadcast('payments');
+  res.json({ ok: true });
+});
+
+app.delete('/api/payment-methods/:id', (req, res) => {
+  const cur = db.prepare('SELECT * FROM payment_methods WHERE id = ?').get(Number(req.params.id));
+  if (!cur) return res.status(404).json({ error: 'အမျိုးအစား မတွေ့ပါ' });
+  const used = db.prepare('SELECT COUNT(*) AS c FROM payments WHERE method = ?').get(cur.code).c;
+  if (used) return res.status(409).json({ error: `ဤအမျိုးအစားကို ငွေချေမှု ${used} ခု အသုံးပြုနေပါသည် — ဖျက်မရပါ` });
+  if (db.prepare('SELECT COUNT(*) AS c FROM payment_methods').get().c <= 1) {
+    return res.status(409).json({ error: 'အနည်းဆုံး ငွေချေမျိုးအစား တစ်ခု ထားရှိရပါမည်' });
+  }
+  db.prepare('DELETE FROM payment_methods WHERE id = ?').run(cur.id);
+  broadcast('payments');
+  res.json({ ok: true });
+});
+
 /* ---------------- customers ---------------- */
 app.get('/api/customers', (req, res) => {
   const q = `%${req.query.q || ''}%`;
@@ -1606,9 +1664,10 @@ function shiftSummary(shift) {
   let endSql = '';
   if (shift.closed_at) { endSql = 'AND p.paid_at <= ?'; args.push(shift.closed_at); }
   const byMethod = db.prepare(`
-    SELECT p.method, SUM(p.amount) AS amount, COUNT(*) AS count
+    SELECT p.method, COALESCE(m.name, p.method) AS method_name, SUM(p.amount) AS amount, COUNT(*) AS count
     FROM payments p JOIN orders o ON o.id = p.order_id
-    WHERE p.paid_at >= ? ${endSql} GROUP BY p.method ORDER BY amount DESC
+    LEFT JOIN payment_methods m ON m.code = p.method
+    WHERE p.paid_at >= ? ${endSql} GROUP BY p.method, m.name ORDER BY amount DESC
   `).all(...args);
   const cash = byMethod.find(m => m.method === 'cash')?.amount || 0;
   const orders = db.prepare(`
@@ -1724,7 +1783,7 @@ function buildReceiptText(orderId) {
   if (o.tax) rows.push(lineText('Tax', moneyText(o.tax)));
   if (o.service) rows.push(lineText('Service', moneyText(o.service)));
   rows.push(lineText('TOTAL', moneyText(o.total)));
-  const methods = o.payments.map(p => `${p.method}: ${moneyText(p.amount)}`).join('  ');
+  const methods = o.payments.map(p => `${p.method_name || p.method}: ${moneyText(p.amount)}`).join('  ');
   if (methods) rows.push(methods);
   rows.push('-'.repeat(42));
   if (o.items.some(it => it.status !== 'cancelled' && it.is_alcohol)) {

@@ -391,7 +391,7 @@ export default function Dashboard({ data, go }) {
                   <div className="pdl-head">
                     <div className="pdl-method-info">
                       <span className="pdl-dot" style={{ background: METHOD_COLORS[m.method] || 'var(--brand)' }} />
-                      <strong>{t(METHOD_KEY[m.method] || m.method)}</strong>
+                      <strong>{t(m.method_name || METHOD_KEY[m.method] || m.method)}</strong>
                       <small className="muted">({m.count} {t('ကြိမ်')})</small>
                     </div>
                     <div className="pdl-amount-info">

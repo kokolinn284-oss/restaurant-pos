@@ -44,7 +44,7 @@ export default function Receipt({ order, settings, tableName }) {
       {order.service > 0 && <div className="r-row"><span>{t('ဝန်ဆောင်ခ')}</span><span>{money(order.service)}</span></div>}
       <div className="r-row r-total"><span>{t('ကျသင့်ငွေ')}</span><span>{money(order.total)}</span></div>
       {(order.payments || []).map(p => (
-        <div className="r-row" key={p.id}><span>{t(METHOD_KEY[p.method] || p.method)}</span><span>{money(p.amount)}</span></div>
+        <div className="r-row" key={p.id}><span>{t(p.method_name || METHOD_KEY[p.method] || p.method)}</span><span>{money(p.amount)}</span></div>
       ))}
       <hr />
       <div className="r-center r-small">{settings.footer}</div>

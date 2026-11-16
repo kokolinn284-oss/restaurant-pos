@@ -208,6 +208,62 @@ export function useMediaQuery(query) {
   return matches;
 }
 
+export function DateRangeField({ from, to, onFrom, onTo, className = '' }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className={`date-field ${className}`.trim()} ref={ref}>
+      <div className="date-range date-field-range">
+        <Icon name="calendar" size={15} />
+        <input type="date" value={from} onChange={(e) => onFrom(e.target.value)} aria-label={t('မှ ရက်စွဲ')} />
+        <span className="date-sep">~</span>
+        <input type="date" value={to} onChange={(e) => onTo(e.target.value)} aria-label={t('အထိ ရက်စွဲ')} />
+      </div>
+      <button
+        type="button"
+        className={`search-toggle date-field-toggle ${open ? 'has-value' : ''}`}
+        onClick={() => setOpen((o) => !o)}
+        aria-label={t('ရက်စွဲ ရွေးရန်')}
+        title={t('ရက်စွဲ ရွေးရန်')}
+        aria-expanded={open}
+      >
+        <Icon name="calendar" size={18} />
+      </button>
+      {open && (
+        <div className="date-field-pop" role="dialog" aria-label={t('ရက်စွဲ ရွေးရန်')}>
+          <label className="date-field-pop-row">
+            <span>{t('မှ ရက်စွဲ')}</span>
+            <input type="date" value={from} onChange={(e) => onFrom(e.target.value)} />
+          </label>
+          <label className="date-field-pop-row">
+            <span>{t('အထိ ရက်စွဲ')}</span>
+            <input type="date" value={to} onChange={(e) => onTo(e.target.value)} />
+          </label>
+          <button type="button" className="btn sm" onClick={() => setOpen(false)}>
+            <Icon name="check" size={14} /> {t('ပြီးပါပြီ')}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SearchBox({ value, onChange, placeholder, onSubmit, className = '' }) {
   const narrow = useMediaQuery('(max-width: 720px)');
   const [open, setOpen] = useState(false);

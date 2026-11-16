@@ -1,17 +1,24 @@
 import React, { useState } from 'react';
 import { api, getToken, today } from '../api.js';
 import { useI18n } from '../i18n.jsx';
-import { Icon, Modal, Field } from '../components/ui.jsx';
+import { Icon, Modal, Field, Empty } from '../components/ui.jsx';
 
 const ROLES = { owner: 'ပိုင်ရှင်', cashier: 'ကောင်တာ', waiter: 'စားပွဲထိုး' };
 
-export default function Settings({ data, reload, showToast, onLogout }) {
+const PAGES = {
+  shop: { title: 'ဆိုင် အချက်အလက်', subtitle: 'ဆိုင် အချက်အလက် နှင့် ဘောက်ချာ ဆက်တင်', icon: 'gear' },
+  tables: { title: 'စားပွဲများ', subtitle: 'စားပွဲ နှင့် ဇုန် စီမံခန့်ခွဲမှု', icon: 'table' },
+  staff: { title: 'ဝန်ထမ်း', subtitle: 'ဝန်ထမ်း အကောင့် နှင့် ရာထူး စီမံခန့်ခွဲမှု', icon: 'users' },
+  printer: { title: 'ပရင့်တာ', subtitle: 'ပရင့်တာ ချိတ်ဆက်မှု ဆက်တင်', icon: 'print' }
+};
+
+export default function Settings({ section = 'shop', data, reload, showToast, onLogout }) {
   const { t } = useI18n();
-  const [tab, setTab] = useState('shop');
   const [form, setForm] = useState({ ...data.settings });
   const [tableEdit, setTableEdit] = useState(null);
   const [staffEdit, setStaffEdit] = useState(null);
   const [testing, setTesting] = useState(false);
+  const page = PAGES[section] || PAGES.shop;
 
   const saveSettings = async () => {
     try {
@@ -32,7 +39,7 @@ export default function Settings({ data, reload, showToast, onLogout }) {
   };
 
   const delTable = async (tb) => {
-    if (!window.confirm(`${tb.name} ${t('ဖျက်မှာ သေချာပါသလား?')}`)) return;
+    if (!window.confirm(`${tb.name} ${t('ဖျက်မှာ သေချာပါသလဲ?')}`)) return;
     try {
       await api(`/tables/${tb.id}`, { method: 'DELETE' });
       await reload();
@@ -79,16 +86,36 @@ export default function Settings({ data, reload, showToast, onLogout }) {
 
   return (
     <div className="stack">
-      <div className="tabs wrap">
-        <button className={`tab ${tab === 'shop' ? 'on' : ''}`} onClick={() => setTab('shop')}><Icon name="gear" size={15} /> {t('ဆိုင် အချက်အလက်')}</button>
-        <button className={`tab ${tab === 'tables' ? 'on' : ''}`} onClick={() => setTab('tables')}><Icon name="table" size={15} /> {t('စားပွဲများ')}</button>
-        <button className={`tab ${tab === 'staff' ? 'on' : ''}`} onClick={() => setTab('staff')}><Icon name="users" size={15} /> {t('ဝန်ထမ်း')}</button>
-        <button className={`tab ${tab === 'printer' ? 'on' : ''}`} onClick={() => setTab('printer')}><Icon name="print" size={15} /> {t('ပရင့်တာ')}</button>
+      <div className="page-head inline">
+        <div>
+          <h2>{t(page.title)}</h2>
+          <p className="muted small">{t(page.subtitle)}</p>
+        </div>
+        <div className="row gap">
+          {section === 'shop' && <button className="btn" onClick={saveSettings}>{t('သိမ်းမည်')}</button>}
+          {section === 'tables' && (
+            <button className="btn" onClick={() => setTableEdit({ name: '', zone: 'အပြင်', seats: 4 })}>
+              <Icon name="plus" size={16} /> {t('စားပွဲ အသစ်')}
+            </button>
+          )}
+          {section === 'staff' && (
+            <button className="btn" onClick={() => setStaffEdit({ name: '', pin: '', role: 'cashier', active: 1 })}>
+              <Icon name="plus" size={16} /> {t('ဝန်ထမ်း အသစ်')}
+            </button>
+          )}
+          {section === 'printer' && (
+            <>
+              {(form.printer_mode || 'browser') !== 'browser' && (
+                <button className="btn ghost" disabled={testing} onClick={testPrint}>{testing ? '…' : t('စမ်းသပ် ပရင့်')}</button>
+              )}
+              <button className="btn" onClick={saveSettings}>{t('သိမ်းမည်')}</button>
+            </>
+          )}
+        </div>
       </div>
 
-      {tab === 'shop' && (
+      {section === 'shop' && (
         <section className="panel">
-          <div className="panel-head"><h3>{t('ဆိုင် အချက်အလက်')}</h3></div>
           <div className="form-grid">
             <Field label={t('ဆိုင်အမည် (မြန်မာ)')}><input value={form.shop_name || ''} onChange={e => setForm({ ...form, shop_name: e.target.value })} /></Field>
             <Field label={t('ဆိုင်အမည် (English)')}><input value={form.shop_name_en || ''} onChange={e => setForm({ ...form, shop_name_en: e.target.value })} /></Field>
@@ -102,7 +129,6 @@ export default function Settings({ data, reload, showToast, onLogout }) {
           <div className="panel-actions">
             <button className="btn danger" onClick={onLogout}><Icon name="logout" size={16} /> {t('အကောင့် ထွက်')}</button>
             <button className="btn ghost" onClick={downloadBackup}><Icon name="box" size={16} /> {t('ဒေတာ Backup ရယူ')}</button>
-            <button className="btn" onClick={saveSettings}>{t('သိမ်းမည်')}</button>
           </div>
           <p className="hint mt-12">
             {t('Backup ဖိုင် (.db) ကို ဖုန်း/ကွန်ပြူတာထဲ သိမ်းထားပါ။ နေ့စဉ် အလိုအလျောက် backup ကို backups ဖိုဒါထဲ သိမ်းပေးထားပါတယ်။')}
@@ -110,66 +136,50 @@ export default function Settings({ data, reload, showToast, onLogout }) {
         </section>
       )}
 
-      {tab === 'tables' && (
-        <>
-          <div className="toolbar">
-            <h3>{t('စားပွဲ စီမံ')}</h3>
-            <button className="btn" onClick={() => setTableEdit({ name: '', zone: 'အပြင်', seats: 4 })}><Icon name="plus" size={16} /> <span className="hide-mobile">{t('စားပွဲ')}</span></button>
-          </div>
-          <div className="table-wrap">
-            <table className="table">
-              <thead><tr><th>{t('အမည်')}</th><th>{t('ဇုန်')}</th><th>{t('ထိုင်ခုံ')}</th><th></th></tr></thead>
-              <tbody>
-                {data.tables.map(tb => (
-                  <tr key={tb.id}>
-                    <td><strong>{tb.name}</strong></td>
-                    <td>{t(tb.zone)}</td>
-                    <td>{tb.seats}</td>
-                    <td className="right">
-                      <button className="link-btn act-edit" onClick={() => setTableEdit({ ...tb })}>{t('ပြင်')}</button>
-                      <button className="link-btn act-delete" onClick={() => delTable(tb)}>{t('ဖျက်')}</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      {tab === 'staff' && (
-        <>
-          <div className="toolbar">
-            <h3>{t('ဝန်ထမ်း')}</h3>
-            <button className="btn" onClick={() => setStaffEdit({ name: '', pin: '', role: 'cashier', active: 1 })}><Icon name="plus" size={16} /> <span className="hide-mobile">{t('ဝန်ထမ်း')}</span></button>
-          </div>
-          <div className="table-wrap">
-            <table className="table">
-              <thead><tr><th>{t('အမည်')}</th><th>{t('ရာထူး')}</th><th>PIN</th><th>{t('အခြေအနေ')}</th><th></th></tr></thead>
-              <tbody>
-                {data.staff.map(s => (
-                  <tr key={s.id}>
-                    <td><strong>{s.name}</strong></td>
-                    <td>{t(ROLES[s.role] || s.role)}</td>
-                    <td>••••</td>
-                    <td><span className={`badge ${s.active ? 'ok' : 'bad'}`}>{s.active ? t('အလုပ်လုပ်') : t('ပိတ်ထားသည်')}</span></td>
-                    <td className="right"><button className="link-btn act-edit" onClick={() => setStaffEdit({ ...s })}>{t('ပြင်')}</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      {tab === 'printer' && (
+      {section === 'tables' && (
         <section className="panel">
-          <div className="panel-head">
-            <h3><Icon name="print" size={16} /> {t('ပရင့်တာ ဆက်တင်')}</h3>
-            {(form.printer_mode || 'browser') !== 'browser' && (
-              <button className="btn ghost sm" disabled={testing} onClick={testPrint}>{testing ? '…' : t('စမ်းသပ် ပရင့်')}</button>
-            )}
+          <div className="panel-head"><h3><Icon name="table" size={16} /> {t('စားပွဲ စီမံ')}</h3></div>
+          <div className="list">
+            {data.tables.length === 0 ? <Empty text={t('ဒေတာ မရှိပါ')} /> : data.tables.map(tb => (
+              <div className="list-row static" key={tb.id}>
+                <div className="grow">
+                  <strong>{tb.name}</strong>
+                  <small className="muted">{t(tb.zone)} · {tb.seats} {t('ထိုင်ခုံ')}</small>
+                </div>
+                <button className="icon-btn act-edit" onClick={() => setTableEdit({ ...tb })} aria-label={t('ပြင်')} title={t('ပြင်')}>
+                  <Icon name="edit" size={15} />
+                </button>
+                <button className="icon-btn act-delete" onClick={() => delTable(tb)} aria-label={t('ဖျက်')} title={t('ဖျက်')}>
+                  <Icon name="trash" size={15} />
+                </button>
+              </div>
+            ))}
           </div>
+        </section>
+      )}
+
+      {section === 'staff' && (
+        <section className="panel">
+          <div className="panel-head"><h3><Icon name="users" size={16} /> {t('ဝန်ထမ်း စီမံ')}</h3></div>
+          <div className="list">
+            {data.staff.length === 0 ? <Empty text={t('ဒေတာ မရှိပါ')} /> : data.staff.map(s => (
+              <div className="list-row static" key={s.id}>
+                <div className="grow">
+                  <strong>{s.name}</strong>
+                  <small className="muted">{t(ROLES[s.role] || s.role)} · PIN ••••</small>
+                </div>
+                <span className={`badge ${s.active ? 'ok' : 'bad'}`}>{s.active ? t('အလုပ်လုပ်') : t('ပိတ်ထားသည်')}</span>
+                <button className="icon-btn act-edit" onClick={() => setStaffEdit({ ...s })} aria-label={t('ပြင်')} title={t('ပြင်')}>
+                  <Icon name="edit" size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {section === 'printer' && (
+        <section className="panel">
           <div className="form-grid">
             <Field label={t('ပရင့်တာ ပုံစံ')} hint={t('မြန်မာစာ အတွက် Windows ပရင့်တာ ကို အကြံပြုသည်')}>
               <select value={form.printer_mode || 'browser'} onChange={e => setForm({ ...form, printer_mode: e.target.value })}>
@@ -186,9 +196,6 @@ export default function Settings({ data, reload, showToast, onLogout }) {
             <div><strong>{t('ဘရောက်ဇာ ပရင့်')}</strong><span>{t('ချိတ်ဆက်ထားသော ပရင့်တာ မလိုပါ — dialog မှ ရွေးပါ')}</span></div>
             <div><strong>{t('ကွန်ရက် (ESC/POS)')}</strong><span>{t('တူညီသော Wi-Fi ပေါ်ရှိ ပရင့်တာ IP ထည့်ပါ')}</span></div>
             <div><strong>{t('Windows ပရင့်တာ')}</strong><span>{t('ဆာဗာ ကွန်ပျူတာတွင် ချိတ်ထားသော ပရင့်တာ အမည်')}</span></div>
-          </div>
-          <div className="panel-actions">
-            <button className="btn" onClick={saveSettings}>{t('သိမ်းမည်')}</button>
           </div>
         </section>
       )}

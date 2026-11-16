@@ -619,7 +619,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
                     <div className="cfc-badges-top">
                       {item.code && <span className="cfc-code-badge">{item.code}</span>}
                       {item.station === 'bar' ? (
-                        <span className="cfc-station-badge bar">🍹 {stationLabel(stations, item.station, isEn)}</span>
+                        <span className="cfc-station-badge bar-station">🍹 {stationLabel(stations, item.station, isEn)}</span>
                       ) : item.station === 'kitchen' ? (
                         <span className="cfc-station-badge kitchen">🍳 {stationLabel(stations, item.station, isEn)}</span>
                       ) : (
@@ -723,7 +723,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
                   <span className="cdm-cat">{isEn ? (categories.find(c => c.id === detailItem.category_id)?.name_en || catMap.get(detailItem.category_id)) : catMap.get(detailItem.category_id)}</span>
                   {detailItem.code && <span className="cfc-code-badge">{detailItem.code}</span>}
                   {detailItem.station === 'bar' ? (
-                    <span className="cfc-station-badge bar">🍹 {stationLabel(stations, detailItem.station, isEn)}</span>
+                    <span className="cfc-station-badge bar-station">🍹 {stationLabel(stations, detailItem.station, isEn)}</span>
                   ) : detailItem.station === 'kitchen' ? (
                     <span className="cfc-station-badge kitchen">🍳 {stationLabel(stations, detailItem.station, isEn)}</span>
                   ) : (

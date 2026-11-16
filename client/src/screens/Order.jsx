@@ -10,6 +10,13 @@ import {
 } from '../offline.js';
 
 const TINTS = ['#0e9f6e', '#f59e0b', '#5b5bd6', '#0d94d2', '#ef4444', '#8b5cf6'];
+const PAY_FALLBACK = [
+  { code: 'cash', name: 'လက်ငင်း' },
+  { code: 'kbzpay', name: 'KBZPay' },
+  { code: 'wavepay', name: 'WavePay' },
+  { code: 'bank', name: 'ဘဏ်/ကတ်' },
+  { code: 'credit', name: 'အကြွေး' }
+];
 
 export default function Order({ orderId, data, reload, showToast, onBack, openOrder, online = true, drafts = [], syncNow }) {
   const { t, isEn } = useI18n();
@@ -360,11 +367,9 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
                 </div>
                 <div className="item-card-content">
                   <span className="item-name">{i.name}</span>
-                  <div className="item-card-foot">
-                    <span className="item-price">{money(i.price)}</span>
-                    <span className="item-add"><Icon name="plus" size={14} /></span>
-                  </div>
+                  <span className="item-price">{money(i.price)}</span>
                 </div>
+                <span className="item-add"><Icon name="plus" size={14} /></span>
               </button>
             );
           })}
@@ -546,9 +551,24 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
   const [discount, setDiscount] = useState(0);
   const [promotionId, setPromotionId] = useState('');
   const [rows, setRows] = useState([{ method: 'cash', amount: String(initialTotal) }]);
+  const [methods, setMethods] = useState(PAY_FALLBACK);
   const [customerId, setCustomerId] = useState(order.customer_id || '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+
+  useEffect(() => {
+    api('/payment-methods')
+      .then(list => {
+        if (Array.isArray(list) && list.length) setMethods(list.map(m => ({ code: m.code, name: m.name })));
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    setRows(rs => {
+      if (rs.every(r => methods.some(m => m.code === r.method))) return rs;
+      return rs.map(r => methods.some(m => m.code === r.method) ? r : { ...r, method: methods[0].code });
+    });
+  }, [methods]);
 
   const amountOf = (r) => Math.round(Number(r.amount) || 0);
   const disc = Math.min(Math.max(0, Number(discount) || 0), subtotal);
@@ -605,7 +625,7 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
 
   const setRow = (i, patch) => setRows(rs => rs.map((r, idx) => idx === i ? { ...r, ...patch } : r));
   const addRow = () => setRows(rs => [...rs, {
-    method: 'cash',
+    method: methods[0]?.code || 'cash',
     amount: String(Math.max(0, total - rs.reduce((s, r) => s + amountOf(r), 0)))
   }]);
   const removeRow = (i) => setRows(rs => rs.length > 1 ? rs.filter((_, idx) => idx !== i) : rs);
@@ -664,13 +684,6 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
   };
 
   const selectedPromo = usable.find(p => p.id === promotionId);
-  const methods = [
-    ['cash', 'လက်ငင်း', 'cash'],
-    ['kbzpay', 'KBZPay', 'phone'],
-    ['wavepay', 'WavePay', 'phone'],
-    ['bank', 'ဘဏ်/ကတ်', 'receipt2'],
-    ['credit', 'အကြွေး', 'clock']
-  ];
 
   return (
     <Modal title={t('ငွေရှင်း')} onClose={onClose} footer={<>
@@ -723,7 +736,7 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
         {rows.map((r, i) => (
           <div className="pay-row" key={i}>
             <select value={r.method} onChange={e => setRow(i, { method: e.target.value })}>
-              {methods.map(([k, label]) => <option key={k} value={k}>{t(label)}</option>)}
+              {methods.map(m => <option key={m.code} value={m.code}>{t(m.name)}</option>)}
             </select>
             <input type="number" min="0" inputMode="numeric" value={r.amount}
               onChange={e => setRow(i, { amount: e.target.value })} placeholder={t('ပမာဏ')} />

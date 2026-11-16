@@ -154,6 +154,13 @@ CREATE TABLE IF NOT EXISTS expense_categories (
   name TEXT NOT NULL COLLATE NOCASE UNIQUE
 );
 
+CREATE TABLE IF NOT EXISTS payment_methods (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  sort INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS shifts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   staff_id INTEGER,
@@ -271,6 +278,20 @@ if (!db.prepare("SELECT 1 FROM settings WHERE key = 'expense_categories_seeded'"
   for (const name of DEFAULT_EXPENSE_CATEGORIES) insCat.run(name);
   for (const row of db.prepare("SELECT DISTINCT category FROM expenses WHERE TRIM(category) <> ''").all()) insCat.run(row.category);
   db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('expense_categories_seeded', '1')").run();
+}
+
+const DEFAULT_PAYMENT_METHODS = [
+  ['cash', 'လက်ငင်း'], ['kbzpay', 'KBZPay'], ['wavepay', 'WavePay'], ['bank', 'ဘဏ်/ကတ်'], ['credit', 'အကြွေး']
+];
+if (!db.prepare("SELECT 1 FROM settings WHERE key = 'payment_methods_seeded'").get()) {
+  const insPm = db.prepare('INSERT OR IGNORE INTO payment_methods (code, name, sort) VALUES (?, ?, ?)');
+  DEFAULT_PAYMENT_METHODS.forEach(([code, name], i) => insPm.run(code, name, (i + 1) * 10));
+  const known = new Set(DEFAULT_PAYMENT_METHODS.map(([code]) => code));
+  let sort = 100;
+  for (const row of db.prepare("SELECT DISTINCT method FROM payments WHERE TRIM(method) <> ''").all()) {
+    if (!known.has(row.method)) insPm.run(row.method, row.method, sort += 10);
+  }
+  db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('payment_methods_seeded', '1')").run();
 }
 
 const count = (table) => db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get().c;
@@ -520,7 +541,11 @@ export function orderWithItems(orderId) {
   for (const it of items) {
     it.modifiers = db.prepare('SELECT * FROM order_item_modifiers WHERE order_item_id = ?').all(it.id);
   }
-  const payments = db.prepare('SELECT * FROM payments WHERE order_id = ? ORDER BY id').all(orderId);
+  const payments = db.prepare(`
+    SELECT p.*, COALESCE(m.name, p.method) AS method_name
+    FROM payments p LEFT JOIN payment_methods m ON m.code = p.method
+    WHERE p.order_id = ? ORDER BY p.id
+  `).all(orderId);
   return { ...order, items, payments };
 }
 

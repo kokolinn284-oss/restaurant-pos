@@ -10,7 +10,10 @@ import MenuAdmin from './screens/MenuAdmin.jsx';
 import Inventory from './screens/Inventory.jsx';
 import Members from './screens/Members.jsx';
 import Expenses from './screens/Expenses.jsx';
+import ExpenseCategories from './screens/ExpenseCategories.jsx';
+import PaymentMethods from './screens/PaymentMethods.jsx';
 import Reports from './screens/Reports.jsx';
+import DailySales from './screens/DailySales.jsx';
 import Settings from './screens/Settings.jsx';
 import CustomerCatalog from './screens/CustomerCatalog.jsx';
 import CalculatorModal from './components/CalculatorModal.jsx';
@@ -28,13 +31,23 @@ const NAV = [
   { key: 'inventory', label: 'ဂိုဒေါင်း', short: 'ဂိုဒေါင်း', icon: 'box', tone: 'amber' },
   { key: 'members', label: 'အဖွဲ့ဝင်', short: 'အဖွဲ့ဝင်', icon: 'users', tone: 'cyan' },
   { key: 'expenses', label: 'အသုံးစရိတ်', short: 'အသုံးစရိတ်', icon: 'cash', tone: 'rose' },
+  { key: 'sales', label: 'နေ့စဉ် အရောင်းစာရင်း', short: 'အရောင်း', icon: 'receipt', tone: 'cyan' },
   { key: 'reports', label: 'အစီရင်ခံစာ', short: 'စာရင်း', icon: 'chart', tone: 'violet' },
   { key: 'settings', label: 'ဆက်တင်', short: 'ဆက်တင်', icon: 'gear', tone: 'slate' }
 ];
 
+const SETTINGS_LINKS = [
+  { key: 'settings', label: 'ဆိုင် အချက်အလက်', short: 'ဆိုင်', icon: 'gear', tone: 'slate' },
+  { key: 'settings-tables', label: 'စားပွဲများ', short: 'စားပွဲ', icon: 'table', tone: 'sky' },
+  { key: 'settings-staff', label: 'ဝန်ထမ်း', short: 'ဝန်ထမ်း', icon: 'users', tone: 'cyan' },
+  { key: 'settings-printer', label: 'ပရင့်တာ', short: 'ပရင့်တာ', icon: 'print', tone: 'indigo' },
+  { key: 'expensecats', label: 'အသုံးစရိတ် အမျိုးအစား', short: 'အမျိုးအစား', icon: 'tag', tone: 'amber' },
+  { key: 'payments', label: 'ငွေပေးချေမှု အမျိုးအစား', short: 'ငွေချေနည်း', icon: 'receipt2', tone: 'emerald' }
+];
+
 const ROLE_KEY = { owner: 'ပိုင်ရှင်', cashier: 'ကောင်တာ', waiter: 'စားပွဲထိုး' };
 const ROLE_NAV = {
-  owner: NAV.map(n => n.key),
+  owner: [...new Set([...NAV.map(n => n.key), ...SETTINGS_LINKS.map(n => n.key)])],
   cashier: NAV.map(n => n.key).filter(k => k !== 'settings'),
   waiter: ['tables', 'kitchen']
 };
@@ -53,6 +66,7 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [online, setOnline] = useState(() => typeof navigator === 'undefined' ? true : navigator.onLine !== false);
   const [navOpen, setNavOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [sideCollapsed, setSideCollapsed] = useState(() => localStorage.getItem('pos_side_collapsed') === '1');
   const [userOpen, setUserOpen] = useState(false);
   const [calcOpen, setCalcOpen] = useState(false);
@@ -231,7 +245,8 @@ export default function App() {
   const navItems = NAV.filter(n => (ROLE_NAV[staff.role] || ROLE_NAV.cashier).includes(n.key));
   const shopName = isEn ? (settings.shop_name_en || 'Sintawgyi Restaurant') : (settings.shop_name || 'စည်တော်ကြီး စားသောက်ဆိုင်');
   const shopSub = isEn ? (settings.shop_name || 'စည်တော်ကြီး စားသောက်ဆိုင်') : (settings.shop_name_en || 'Sintawgyi Restaurant');
-  const pageNav = view === 'order' ? NAV[0] : (NAV.find(n => n.key === view) || NAV[0]);
+  const pageNav = view === 'order' ? NAV[0] : ([...NAV, ...SETTINGS_LINKS].find(n => n.key === view) || NAV[0]);
+  const inSettings = SETTINGS_LINKS.some(s => s.key === view);
   const roleLabel = t(ROLE_KEY[staff.role] || 'ကောင်တာ');
   const dateText = isEn
     ? now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', weekday: 'short' })
@@ -277,8 +292,14 @@ export default function App() {
       case 'inventory': return <Inventory reload={reload} showToast={showToast} go={goto} />;
       case 'members': return <Members data={data} reload={reload} showToast={showToast} />;
       case 'expenses': return <Expenses staff={staff} reload={reload} showToast={showToast} />;
+      case 'expensecats': return <ExpenseCategories staff={staff} showToast={showToast} />;
+      case 'payments': return <PaymentMethods staff={staff} showToast={showToast} />;
+      case 'sales': return <DailySales data={data} showToast={showToast} />;
       case 'reports': return <Reports data={data} showToast={showToast} />;
-      case 'settings': return <Settings data={data} reload={reload} showToast={showToast} onLogout={logout} />;
+      case 'settings': return <Settings section="shop" data={data} reload={reload} showToast={showToast} onLogout={logout} />;
+      case 'settings-tables': return <Settings section="tables" data={data} reload={reload} showToast={showToast} onLogout={logout} />;
+      case 'settings-staff': return <Settings section="staff" data={data} reload={reload} showToast={showToast} onLogout={logout} />;
+      case 'settings-printer': return <Settings section="printer" data={data} reload={reload} showToast={showToast} onLogout={logout} />;
       default:
         return <Tables data={data} openOrder={openOrder} reload={reload} showToast={showToast} staff={staff}
           online={online} drafts={drafts} syncNow={runSync} />;
@@ -309,14 +330,37 @@ export default function App() {
         <div className="nav-cap">{t('စီမံခန့်ခွဲမှု')}</div>
         <nav>
           {navItems.map(n => (
-            <button key={n.key} data-nav={n.key}
-              className={`nav-btn ${view === n.key || (n.key === 'tables' && view === 'order') ? 'active' : ''}`}
-              onClick={() => goto(n.key)} title={t(n.label)}>
-              <span className={`ni t-${n.tone}`}><Icon name={n.icon} size={17} /></span>
-              <span className="nav-label">{t(n.label)}</span>
-              {badge(n.key) > 0 && <span className="nav-count">{badge(n.key)}</span>}
-              <span className="nav-chev" aria-hidden="true">›</span>
-            </button>
+            <React.Fragment key={n.key}>
+              <button data-nav={n.key}
+                className={`nav-btn ${view === n.key || (n.key === 'tables' && view === 'order') || (n.key === 'settings' && inSettings) ? 'active' : ''}`}
+                onClick={() => {
+                  if (n.key === 'settings') {
+                    setSettingsOpen(v => !v);
+                    setView('settings');
+                    setOrderId(null);
+                    setUserOpen(false);
+                    return;
+                  }
+                  goto(n.key);
+                }} title={t(n.label)}>
+                <span className={`ni t-${n.tone}`}><Icon name={n.icon} size={17} /></span>
+                <span className="nav-label">{t(n.label)}</span>
+                {badge(n.key) > 0 && <span className="nav-count">{badge(n.key)}</span>}
+                <span className={`nav-chev ${n.key === 'settings' && settingsOpen ? 'chev-open' : ''}`} aria-hidden="true">›</span>
+              </button>
+              {n.key === 'settings' && settingsOpen && (
+                <div className="nav-sub">
+                  {SETTINGS_LINKS.map(s => (
+                    <button key={s.key} data-nav={s.key}
+                      className={`nav-sub-btn ${view === s.key ? 'active' : ''}`}
+                      onClick={() => goto(s.key)} title={t(s.label)}>
+                      <span className="nav-sub-dot" aria-hidden="true" />
+                      <span className="nav-sub-label">{t(s.label)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </React.Fragment>
           ))}
         </nav>
 

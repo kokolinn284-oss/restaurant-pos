@@ -332,6 +332,7 @@ export function Pagination({
   onPageChange,
   onPageSizeChange,
   pageSizeOptions = [10, 25, 50, 100],
+  label,
 }) {
   const { t } = useI18n();
   const totalPages = pageSize === 'all' ? 1 : Math.ceil(totalItems / pageSize) || 1;
@@ -344,7 +345,7 @@ export function Pagination({
     <div className="pagination-bar">
       <div className="pagination-info">
         <span>
-          {t('ပစ္စည်း')} <strong>{startItem}–{endItem}</strong> ({t('စုစုပေါင်း')} <strong>{totalItems}</strong> {t('ခု')})
+          {label || t('ပစ္စည်း')} <strong>{startItem}–{endItem}</strong> ({t('စုစုပေါင်း')} <strong>{totalItems}</strong> {t('ခု')})
         </span>
 
         {onPageSizeChange && (
