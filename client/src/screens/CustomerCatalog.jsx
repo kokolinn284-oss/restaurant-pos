@@ -38,7 +38,6 @@ export default function CustomerCatalog({ onBackToPos = null }) {
   // Filter & Search
   const [selectedCat, setSelectedCat] = useState('all');
   const [search, setSearch] = useState('');
-  const [dietary, setDietary] = useState('all'); // 'all', 'non_alcohol', 'alcohol'
 
   // Cart / Tray state
   const [tray, setTray] = useState(() => {
@@ -243,11 +242,6 @@ export default function CustomerCatalog({ onBackToPos = null }) {
     if (selectedCat !== 'all') {
       list = list.filter(i => String(i.category_id) === String(selectedCat));
     }
-    if (dietary === 'alcohol') {
-      list = list.filter(i => i.is_alcohol);
-    } else if (dietary === 'non_alcohol') {
-      list = list.filter(i => !i.is_alcohol);
-    }
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(i =>
@@ -257,7 +251,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
       );
     }
     return list;
-  }, [items, selectedCat, dietary, search, catMap]);
+  }, [items, selectedCat, search, catMap]);
 
   // Tray helpers
   const trayCount = useMemo(() => tray.reduce((s, it) => s + it.qty, 0), [tray]);
@@ -321,6 +315,10 @@ export default function CustomerCatalog({ onBackToPos = null }) {
     setDetailItem(item);
     setDetailQty(1);
     setDetailNote('');
+  };
+
+  const scrollToMenu = () => {
+    document.querySelector('.catalog-card-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const confirmDetailAdd = () => {
@@ -496,27 +494,6 @@ export default function CustomerCatalog({ onBackToPos = null }) {
               </button>
             )}
           </div>
-
-          <div className="dietary-filter-chips">
-            <button
-              className={`filter-chip ${dietary === 'all' ? 'active' : ''}`}
-              onClick={() => setDietary('all')}
-            >
-              {t('အားလုံး')}
-            </button>
-            <button
-              className={`filter-chip ${dietary === 'non_alcohol' ? 'active' : ''}`}
-              onClick={() => setDietary('non_alcohol')}
-            >
-              {isEn ? 'Food & Drinks' : 'အစားအသောက်'}
-            </button>
-            <button
-              className={`filter-chip ${dietary === 'alcohol' ? 'active' : ''}`}
-              onClick={() => setDietary('alcohol')}
-            >
-              {isEn ? 'Beer & Alcohol' : 'ဘီယာ & အရက်'}
-            </button>
-          </div>
         </div>
 
         {/* Sticky Category Tabs Bar */}
@@ -563,6 +540,20 @@ export default function CustomerCatalog({ onBackToPos = null }) {
 
       {/* Main Catalog Menu Grid */}
       <main className="catalog-main">
+        <section className="catalog-promo-banner">
+          <img className="cpb-photo" src="/menu/grilled_chicken.webp" alt="" aria-hidden="true" />
+          <div className="cpb-shade" />
+          <div className="cpb-copy">
+            <span className="cpb-eyebrow">🍽️ {L('ဆိုင်တွင်း · ပါဆယ်', 'Dine-in · Takeaway')}</span>
+            <h2>{L('အရသာရှိ ဟင်းလျာများကို ယခုပဲ ရွေးချယ်ပါ', 'Pick your favourites from the menu')}</h2>
+            <p>{L('ဟင်းပွဲများကို ရွေးပြီး ဗန်းထဲထည့်ကာ စားပွဲမှာတင် မှာယူနိုင်ပါတယ်။', 'Add dishes to your tray and order right from your table.')}</p>
+            <button type="button" className="cpb-cta" onClick={scrollToMenu}>
+              {L('မီနူး ကြည့်မည်', 'Browse menu')}
+              <Icon name="down" size={14} />
+            </button>
+          </div>
+        </section>
+
         {myOrders.length > 0 && (
           <button type="button" className="my-orders-bar" onClick={() => setMyOrdersOpen(true)}>
             <span className="mob-icon"><Icon name="receipt" size={17} /></span>
@@ -611,12 +602,12 @@ export default function CustomerCatalog({ onBackToPos = null }) {
             <div className="empty-emoji">🍽️</div>
             <h3>{t('ဟင်းပွဲမရှိပါ')}</h3>
             <p className="muted">{L('ရှာဖွေမှုနှင့် ကိုက်ညီသော ဟင်းပွဲ မတွေ့ပါ', 'No dishes match your search')}</p>
-            <button className="btn outline sm" onClick={() => { setSearch(''); setSelectedCat('all'); setDietary('all'); }}>
+            <button className="btn outline sm" onClick={() => { setSearch(''); setSelectedCat('all'); }}>
               {L('အားလုံးပြန်ကြည့်မည်', 'Show all dishes')}
             </button>
           </div>
         ) : (
-          <div className="catalog-card-grid" key={`${selectedCat}_${dietary}`}>
+          <div className="catalog-card-grid" key={selectedCat}>
             {filteredItems.map(item => {
               const catObj = categories.find(c => c.id === item.category_id);
               const catName = isEn ? (catObj?.name_en || catObj?.name || '') : (catObj?.name || catObj?.name_en || '');

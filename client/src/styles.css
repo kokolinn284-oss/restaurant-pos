@@ -4717,7 +4717,7 @@ input[type="date"], input[type="datetime-local"] { color-scheme: inherit; }
 }
 
 
-/* Catalog Search & Dietary Bar */
+/* Catalog Search Bar */
 .catalog-search-bar {
   padding: 6px 16px 9px;
   display: flex;
@@ -4729,18 +4729,16 @@ input[type="date"], input[type="datetime-local"] { color-scheme: inherit; }
 }
 @media (min-width: 620px) {
   .catalog-search-bar {
-    flex-direction: row;
-    align-items: center;
-    gap: 10px;
     padding: 8px 16px 10px;
   }
-  .catalog-search-wrap { flex: 1 1 170px; min-width: 140px; max-width: 620px; }
-  .dietary-filter-chips { margin-left: auto; flex: 0 1 auto; min-width: 0; }
 }
 .catalog-search-wrap {
   position: relative;
   display: flex;
   align-items: center;
+  width: 100%;
+  max-width: 680px;
+  margin: 0 auto;
 }
 .search-icon {
   position: absolute;
@@ -4772,38 +4770,89 @@ input[type="date"], input[type="datetime-local"] { color-scheme: inherit; }
   color: var(--muted);
   cursor: pointer;
 }
-.dietary-filter-chips {
-  display: flex;
-  gap: 7px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  min-width: 0;
-  flex-shrink: 0;
+
+/* Shop promo banner */
+.catalog-promo-banner {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  background: linear-gradient(115deg, #063a2a, #0a6b4d 55%, #0e9f6e);
+  box-shadow: 0 14px 30px -16px rgba(4, 60, 42, .65);
+  isolation: isolate;
 }
-.dietary-filter-chips::-webkit-scrollbar { display: none; }
-.filter-chip {
-  padding: 5px 13px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--muted);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all .15s ease;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+.cpb-photo {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 56%;
+  height: 100%;
+  object-fit: cover;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 42%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 42%);
 }
-.filter-chip:hover {
-  background: var(--surface-2);
-  color: var(--ink);
-  border-color: var(--line-strong);
+.cpb-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(4, 38, 28, .96) 0%, rgba(4, 38, 28, .78) 46%, rgba(4, 38, 28, .12) 100%);
 }
-.filter-chip.active {
-  background: #0891b2;
+.cpb-copy {
+  position: relative;
+  max-width: 640px;
+  padding: 18px 20px;
   color: #fff;
-  border-color: #0891b2;
-  box-shadow: 0 2px 6px rgba(8, 145, 178, 0.25);
+}
+.cpb-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .16);
+  border: 1px solid rgba(255, 255, 255, .24);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .2px;
+}
+.cpb-copy h2 {
+  margin: 8px 0 4px;
+  font-size: 20px;
+  line-height: 1.35;
+  font-weight: 800;
+  color: #fff;
+  text-wrap: balance;
+}
+.cpb-copy p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, .84);
+}
+.cpb-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 11px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 999px;
+  background: #fff;
+  color: #07503a;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 6px 16px -8px rgba(0, 0, 0, .55);
+  transition: transform .14s ease, box-shadow .14s ease;
+}
+.cpb-cta:hover { transform: translateY(-1px); box-shadow: 0 9px 20px -8px rgba(0, 0, 0, .6); }
+.cpb-cta:active { transform: translateY(1px); }
+.catalog-card-grid { scroll-margin-top: 160px; }
+@media (max-width: 640px) {
+  .catalog-promo-banner { border-radius: 16px; }
+  .cpb-photo { width: 100%; opacity: .55; -webkit-mask-image: linear-gradient(90deg, transparent, #000 55%); mask-image: linear-gradient(90deg, transparent, #000 55%); }
+  .cpb-shade { background: linear-gradient(100deg, rgba(4, 38, 28, .97), rgba(4, 38, 28, .84) 52%, rgba(4, 38, 28, .42)); }
+  .cpb-copy { padding: 15px 16px; }
+  .cpb-copy h2 { font-size: 17px; }
+  .catalog-card-grid { scroll-margin-top: 140px; }
 }
 
 /* Sticky Category Pills Bar — 3D tinted buttons */
@@ -6122,7 +6171,6 @@ input[type="date"], input[type="datetime-local"] { color-scheme: inherit; }
   .catalog-search-input { height: 38px; font-size: 13px; }
   .catalog-category-bar { padding: 6px 12px 10px; }
   .cat-pill { padding: 6px 12px; font-size: 12.5px; gap: 5px; }
-  .filter-chip { padding: 5px 11px; font-size: 11.5px; }
 }
 
 @media (max-width: 520px) {
