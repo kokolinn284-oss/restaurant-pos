@@ -74,6 +74,11 @@
 
 ### Copy repo သို့ push မရသည့်အခါ — Web Terminal ဖြင့် ကိုယ်တိုင် deploy
 
+> 2026-11-17 မှစ၍ `shwepyithit568-commits/restaurant-pos` တွင် `kokolinn284-oss` ကို
+> Write collaborator ထည့်ထားပြီး local repo ၏ `origin` သည် repo နှစ်ခုလုံးဆီ
+> push လုပ်ပါတယ်။ ပုံမှန်အားဖြင့် `git push origin main` တစ်ချက်နှင့်
+> Hostinger က auto-deploy လုပ်ပါမည်။ အောက်ပါနည်းကို အရေးပေါ်/အရန် သုံးပါ။
+
 Public repo (`kokolinn284-oss/restaurant-pos`) ကို push ပြီးနောက်
 hPanel → File Manager → `.../hbuilds/current/nodejs` ဖွင့်ပြီး **Terminal** နှိပ်ကာ:
 
@@ -91,8 +96,8 @@ rm -rf dist.old && mv dist dist.old && mv ../dist-new dist
 - Node path `alt-nodejs24` သည် hosting version ပေါ် မူတည်၍ ပြောင်းနိုင်ပါတယ်။
   `readlink /proc/<node-pid>/exe` ဖြင့် စစ်ပါ။
 - ဤနည်းဖြင့် `hbuilds/current` ကို ကိုယ်တိုင်ပြင်ထားသည်ဖြစ်လို့ နောက် Hostinger
-  **Deploy** တစ်ခါ လုပ်လျှင် copy repo ရှိ code အဟောင်း ပြန်လာနိုင်ပါတယ်။
-  အမြဲတမ်းဖြေရှင်းရန် copy repo ကို update လုပ်နိုင်ရပါမည်။
+  **Deploy** တစ်ခါ လုပ်လျှင် copy repo ရှိ code ဖြင့် အစားထိုးခံရပါမည်။
+  ထို့ကြောင့် push ပြီးပါက GitHub auto-deploy ကို အသုံးပြုပါ။
 
 ---
 
@@ -208,8 +213,9 @@ npm run build
 pm2 restart restaurant-pos
 ```
 
-Web App: Hostinger က ချိတ်ထားတဲ့ GitHub account ထဲရှိ repo copy မှ deploy လုပ်ပါတယ်။
-ထို copy repo သို့ push လုပ်ပါ (သို့မဟုတ် Redeploy နှိပ်ပါ)။
+Web App: `git push origin main` လုပ်ပါ — `origin` က
+`kokolinn284-oss/restaurant-pos` နှင့် Hostinger copy repo နှစ်ခုလုံးဆီ
+push လုပ်ပြီး Hostinger က auto-deploy လုပ်ပါတယ်။
 copy repo သို့ push မရပါက အပေါ် (2. ကဏ္ဍ) ရှိ Web Terminal နည်းဖြင့် deploy လုပ်ပါ။
 `POS_DATA_DIR` က build အပြင်ဘက်ဖြစ်လို့ data မပျက်ပါ။
 
