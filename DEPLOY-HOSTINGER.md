@@ -35,10 +35,13 @@
 1. Hostinger Dashboard → **Websites → Create site → Web App** ကို ရွေးပါ။
 2. Domain (သို့မဟုတ် temporary domain) ရွေးပါ။
 3. Code ကို **GitHub repository** မှ import လုပ်ပါ (သို့မဟုတ် `.zip` upload လုပ်ပါ)။
+   Hostinger က ချိတ်ထားတဲ့ GitHub account ထဲကို repo **copy** တစ်ခု ဖန်တီးပြီး
+   ထို copy မှ deploy လုပ်ပါတယ်။ နောက်ပိုင်း update များကို ထို copy repo သို့
+   push ရပါမည် (မူရင်း repo သို့ push လျှင် auto-deploy မဖြစ်ပါ)။
 4. **Build & output settings** တွင်:
-   - **Framework preset**: `Other` (သို့မဟုတ် `Express`)
-   - **Node version**: `22.x` သို့မဟုတ် `24.x`
-   - **Build command**: `npm install && npm run build`
+   - **Framework preset**: `Other` (`Express` preset တွင် build command မပေါ်ပါ)
+   - **Node version**: `24.x` (သို့မဟုတ် `22.x`)
+   - **Build command**: `npm run build`
    - **Output directory**: `dist`
    - **Entry file**: `server/index.js`
 5. **Environment Variables** တွင် အောက်ပါတို့ကို ထည့်ပါ:
@@ -48,9 +51,11 @@
    | `POS_DATA_DIR` | `/home/u123456789/pos-data` |
    | `POS_BACKUP_DIR` | `/home/u123456789/pos-backups` |
    | `POS_TRUST_PROXY` | `1` |
-   | `NODE_ENV` | `production` |
 
    `PORT` ကို Hostinger က အလိုအလျောက် ပေးတာဖြစ်လို့ ထည့်ရန် မလိုပါ။
+   **`NODE_ENV=production` ကို မထည့်ပါနှင့်** — build လုပ်ချိန် `npm` က
+   devDependencies (vite, @vitejs/plugin-react) ကို ချန်လှပ်သွားပြီး
+   `vite: command not found` ဖြင့် build fail ဖြစ်ပါတယ်။
    Username ကို File Manager ထဲက `/home/...` path မှာ ကြည့်ပြီး ပြင်ပါ။
 6. **Deploy** နှိပ်ပါ။ Build log တွင် error မရှိပါက app အလုပ်လုပ်နေပါပြီ။
 7. ပထမဆုံး ဖွင့်ပြီးနောက် ဝန်ထမ်း/မီနူး စသည်တို့ကို ပြင်ဆင်ပါ။
@@ -181,7 +186,8 @@ npm run build
 pm2 restart restaurant-pos
 ```
 
-Web App: repository သို့ push လုပ်ပါ (သို့မဟုတ် redeploy နှိပ်ပါ)။
+Web App: Hostinger က ချိတ်ထားတဲ့ GitHub account ထဲရှိ repo copy မှ deploy လုပ်ပါတယ်။
+ထို copy repo သို့ push လုပ်ပါ (သို့မဟုတ် Redeploy နှိပ်ပါ)။
 `POS_DATA_DIR` က build အပြင်ဘက်ဖြစ်လို့ data မပျက်ပါ။
 
 ---
@@ -208,6 +214,7 @@ Web App: repository သို့ push လုပ်ပါ (သို့မဟု�
 |---|---|
 | `node:sqlite` error | Node 22.13 အောက် ဖြစ်နေသည်။ Node version မြှင့်ပါ။ |
 | Deploy ပြီးတိုင်း data ပျောက် | `POS_DATA_DIR` ကို `hbuilds/current` အတွင်း ထားမိသည်။ အပြင်ဘက်သို့ ရွှေ့ပါ။ |
+| `vite: command not found` | Environment variables ထဲတွင် `NODE_ENV=production` ထည့်ထားသည်။ ဖျက်ပြီး redeploy လုပ်ပါ။ |
 | 502 / app မတက် | `pm2 logs`၊ build log စစ်ပါ။ `PORT` ကို ကိုယ်တိုင် မသတ်မှတ်ပါနှင့် (Web App)။ |
 | Realtime အလုပ်မလုပ် | Nginx တွင် `proxy_buffering off;` ထည့်ပါ။ |
 | Sync မဝင် | Online ဖြစ်ကြောင်း၊ ဝန်ထမ်း role (waiter က ငွေရှင်းပြီး sync မလုပ်နိုင်) စစ်ပါ။ |
