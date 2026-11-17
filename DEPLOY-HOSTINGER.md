@@ -72,6 +72,28 @@
   သုံးပါ။ Offline ဖြစ်နေချိန်တွင်လည်း browser print အလုပ်လုပ်ပါတယ်။
 - Offline/PWA အလုပ်လုပ်ရန် **HTTPS** လိုအပ်ပါတယ် (Hostinger က default ပေးပါတယ်)။
 
+### Copy repo သို့ push မရသည့်အခါ — Web Terminal ဖြင့် ကိုယ်တိုင် deploy
+
+Public repo (`kokolinn284-oss/restaurant-pos`) ကို push ပြီးနောက်
+hPanel → File Manager → `.../hbuilds/current/nodejs` ဖွင့်ပြီး **Terminal** နှိပ်ကာ:
+
+```bash
+export PATH=/opt/alt/alt-nodejs24/root/usr/bin:$PATH
+git fetch https://github.com/kokolinn284-oss/restaurant-pos.git main
+git reset --hard FETCH_HEAD
+./node_modules/.bin/vite build --outDir ../dist-new
+rm -rf dist.old && mv dist dist.old && mv ../dist-new dist
+```
+
+- `npm run build` ကို Web Terminal ထဲ မသုံးပါနှင့် — shell တွင် `npm` မရှိသလို
+  `vite build` က `dist` ကို အရင်ရှင်းလိုက်တာကြောင့် build fail ဖြစ်ပါက site ပျက်သွားနိုင်ပါတယ်။
+  အထက်ပါအတိုင်း folder အသစ်ထဲ build ပြီးမှ လဲပါ။
+- Node path `alt-nodejs24` သည် hosting version ပေါ် မူတည်၍ ပြောင်းနိုင်ပါတယ်။
+  `readlink /proc/<node-pid>/exe` ဖြင့် စစ်ပါ။
+- ဤနည်းဖြင့် `hbuilds/current` ကို ကိုယ်တိုင်ပြင်ထားသည်ဖြစ်လို့ နောက် Hostinger
+  **Deploy** တစ်ခါ လုပ်လျှင် copy repo ရှိ code အဟောင်း ပြန်လာနိုင်ပါတယ်။
+  အမြဲတမ်းဖြေရှင်းရန် copy repo ကို update လုပ်နိုင်ရပါမည်။
+
 ---
 
 ## 3. Hostinger VPS (အကြံပြု — Data နှင့် Printer အတွက်)
@@ -188,6 +210,7 @@ pm2 restart restaurant-pos
 
 Web App: Hostinger က ချိတ်ထားတဲ့ GitHub account ထဲရှိ repo copy မှ deploy လုပ်ပါတယ်။
 ထို copy repo သို့ push လုပ်ပါ (သို့မဟုတ် Redeploy နှိပ်ပါ)။
+copy repo သို့ push မရပါက အပေါ် (2. ကဏ္ဍ) ရှိ Web Terminal နည်းဖြင့် deploy လုပ်ပါ။
 `POS_DATA_DIR` က build အပြင်ဘက်ဖြစ်လို့ data မပျက်ပါ။
 
 ---
