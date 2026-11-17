@@ -88,6 +88,21 @@ export default function CustomerCatalog({ onBackToPos = null }) {
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState('');
   const toastTimer = useRef(null);
+  const headerRef = useRef(null);
+
+  useEffect(() => {
+    if (loading) return undefined;
+    const el = headerRef.current;
+    if (!el) return undefined;
+    const apply = () => document.documentElement.style.setProperty('--catalog-header-h', `${el.offsetHeight}px`);
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      document.documentElement.style.removeProperty('--catalog-header-h');
+    };
+  }, [loading]);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -434,7 +449,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
   return (
     <div className="customer-catalog-app">
       {/* Top Floating / Sticky Restaurant Brand Header */}
-      <header className="catalog-header">
+      <header className="catalog-header" ref={headerRef}>
         <div className="catalog-header-inner">
           <div className="catalog-brand-info">
             <img className="catalog-logo-badge" src="/icon.svg" alt="" width="42" height="42" />
@@ -451,21 +466,6 @@ export default function CustomerCatalog({ onBackToPos = null }) {
           </div>
 
           <div className="catalog-header-actions">
-            {/* Dining Mode & Table Indicator */}
-            <button
-              className={`table-selector-btn ${diningType === 'dine_in' ? 'dine' : 'take'}`}
-              onClick={() => setTableModalOpen(true)}
-              title={t('စားပွဲရွေးရန်')}
-            >
-              <Icon name={diningType === 'dine_in' ? 'table' : 'box'} size={16} />
-              <span className="tsb-label">
-                {diningType === 'dine_in'
-                  ? (selectedTableObj ? selectedTableObj.name : L('စားပွဲရွေးရန်', 'Select table'))
-                  : t('ပါဆယ်')}
-              </span>
-              <Icon name="down" size={12} />
-            </button>
-
             <LangToggle />
             <ThemeToggle className="catalog-theme-toggle" />
 
@@ -494,31 +494,21 @@ export default function CustomerCatalog({ onBackToPos = null }) {
               </button>
             )}
           </div>
-        </div>
 
-        {/* Sticky Category Tabs Bar */}
-        <div className="catalog-category-bar">
+          {/* Dining Mode & Table Indicator */}
           <button
-            className={`cat-pill tone-cyan ${selectedCat === 'all' ? 'active' : ''}`}
-            onClick={() => setSelectedCat('all')}
+            className={`table-selector-btn ${diningType === 'dine_in' ? 'dine' : 'take'}`}
+            onClick={() => setTableModalOpen(true)}
+            title={t('စားပွဲရွေးရန်')}
           >
-            <span>{t('အားလုံး')}</span>
-            <span className="cat-count">{items.length}</span>
+            <Icon name={diningType === 'dine_in' ? 'table' : 'box'} size={16} />
+            <span className="tsb-label">
+              {diningType === 'dine_in'
+                ? (selectedTableObj ? selectedTableObj.name : L('စားပွဲရွေးရန်', 'Select table'))
+                : t('ပါဆယ်')}
+            </span>
+            <Icon name="down" size={12} />
           </button>
-          {categories.map((cat, idx) => {
-            const count = items.filter(i => i.category_id === cat.id).length;
-            const cName = isEn ? (cat.name_en || cat.name) : (cat.name || cat.name_en);
-            return (
-              <button
-                key={cat.id}
-                className={`cat-pill ${CAT_TONES[idx % CAT_TONES.length]} ${String(selectedCat) === String(cat.id) ? 'active' : ''}`}
-                onClick={() => setSelectedCat(cat.id)}
-              >
-                <span>{cName}</span>
-                <span className="cat-count">{count}</span>
-              </button>
-            );
-          })}
         </div>
       </header>
 
@@ -553,6 +543,31 @@ export default function CustomerCatalog({ onBackToPos = null }) {
             </button>
           </div>
         </section>
+
+        {/* Sticky Category Tabs Bar */}
+        <div className="catalog-category-bar">
+          <button
+            className={`cat-pill tone-cyan ${selectedCat === 'all' ? 'active' : ''}`}
+            onClick={() => setSelectedCat('all')}
+          >
+            <span>{t('အားလုံး')}</span>
+            <span className="cat-count">{items.length}</span>
+          </button>
+          {categories.map((cat, idx) => {
+            const count = items.filter(i => i.category_id === cat.id).length;
+            const cName = isEn ? (cat.name_en || cat.name) : (cat.name || cat.name_en);
+            return (
+              <button
+                key={cat.id}
+                className={`cat-pill ${CAT_TONES[idx % CAT_TONES.length]} ${String(selectedCat) === String(cat.id) ? 'active' : ''}`}
+                onClick={() => setSelectedCat(cat.id)}
+              >
+                <span>{cName}</span>
+                <span className="cat-count">{count}</span>
+              </button>
+            );
+          })}
+        </div>
 
         {myOrders.length > 0 && (
           <button type="button" className="my-orders-bar" onClick={() => setMyOrdersOpen(true)}>
