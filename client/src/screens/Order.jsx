@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api, money } from '../api.js';
 import { useI18n } from '../i18n.jsx';
-import { Icon, Modal, Field, stationLabel } from '../components/ui.jsx';
+import { Icon, Modal, Field, Empty, stationLabel } from '../components/ui.jsx';
 import Receipt from '../components/Receipt.jsx';
 import { getFoodImage } from '../foodPresets.js';
 import {
@@ -29,6 +29,9 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
   const [receipt, setReceipt] = useState(null);
   const [splitMode, setSplitMode] = useState(false);
   const [selected, setSelected] = useState([]);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [busyAction, setBusyAction] = useState(false);
   const catsRef = useRef(null);
 
   const isLocal = String(orderId || '').startsWith('offline-');
@@ -140,6 +143,7 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
     : saleItems.filter(i => i.category_id === id).length;
 
   const activeItems = order?.items?.filter(i => i.status !== 'cancelled') || [];
+  const voidedItems = order?.items?.filter(i => i.status === 'cancelled') || [];
   const itemAmount = (it) => {
     const modSum = (it.modifiers || []).reduce((a, m) => a + m.price, 0);
     return Math.round((it.price + modSum) * it.qty);
@@ -170,8 +174,16 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
     }
     if (!online) return showToast(t('ချိတ်ဆက်မှု ပြန်ရမှ ဒီ order ကို ပြင်နိုင်မည်'));
     try {
-      if (qty <= 0) await api(`/order-items/${it.id}`, { method: 'DELETE' });
-      else await api(`/order-items/${it.id}`, { method: 'PATCH', body: JSON.stringify({ qty }) });
+      if (qty <= 0) {
+        if (it.status === 'cooking' || it.status === 'served') {
+          setEditItem({ ...it });
+          showToast(t('မီးဖိုပို့ပြီး ဟင်းကို ပယ်ဖျက်ရန် အကြောင်းပြချက် ဖြည့်ပါ'));
+          return;
+        }
+        await api(`/order-items/${it.id}`, { method: 'DELETE' });
+      } else {
+        await api(`/order-items/${it.id}`, { method: 'PATCH', body: JSON.stringify({ qty }) });
+      }
       await loadOrder();
     } catch (e) { showToast(e.message); }
   };
@@ -202,8 +214,19 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
       return;
     }
     if (!online) return showToast(t('ချိတ်ဆက်မှု ပြန်ရမှ ဒီ order ကို ပြင်နိုင်မည်'));
+    const sent = editItem.status === 'cooking' || editItem.status === 'served';
+    const why = String(editItem.cancel_reason || '').trim();
+    if (sent && !why) return showToast(t('ပယ်ဖျက်ရသည့် အကြောင်းပြချက် ထည့်ပါ'));
     try {
-      await api(`/order-items/${editItem.id}`, { method: 'DELETE' });
+      if (sent) {
+        await api(`/order-items/${editItem.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'cancelled', reason: why })
+        });
+        showToast(t('ဟင်း ပယ်ဖျက်ပြီးပါပြီ'));
+      } else {
+        await api(`/order-items/${editItem.id}`, { method: 'DELETE' });
+      }
       setEditItem(null);
       await loadOrder();
     } catch (e) { showToast(e.message); }
@@ -254,6 +277,33 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
       showToast(`${t('ဘီလ်ခွဲပြီး')} · #${r.order_no}`);
       openOrder?.(r.id);
     } catch (e) { showToast(e.message); }
+  };
+
+  const moveOrder = async (tb) => {
+    if (busyAction || isLocal || !online) return;
+    setBusyAction(true);
+    try {
+      await api(`/orders/${orderId}/move`, { method: 'POST', body: JSON.stringify({ tableId: tb.id }) });
+      setMoveOpen(false);
+      await reload();
+      await loadOrder();
+      showToast(`${tb.name} ${t('သို့ ရွှေ့ပြီးပါပြီ')}`);
+    } catch (e) { showToast(e.message); }
+    finally { setBusyAction(false); }
+  };
+
+  const mergeOrder = async (into) => {
+    if (busyAction || isLocal || !online) return;
+    if (!window.confirm(`${t('ဤဘီလ်ကို ရွေးထားသော ဘီလ်ထဲ ပေါင်းမှာ သေချာပါသလား?')}\n#${into.order_no} · ${money(into.total)}`)) return;
+    setBusyAction(true);
+    try {
+      const r = await api(`/orders/${orderId}/merge`, { method: 'POST', body: JSON.stringify({ intoId: into.id }) });
+      setMergeOpen(false);
+      await reload();
+      showToast(`${t('ဘီလ် ပေါင်းပြီးပါပြီ')} · #${r.order_no}`);
+      openOrder?.(r.id);
+    } catch (e) { showToast(e.message); }
+    finally { setBusyAction(false); }
   };
 
   const paid = async (result) => {
@@ -458,6 +508,18 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
           ))}
         </div>
 
+        {voidedItems.length > 0 && (
+          <div className="cart-voided">
+            <div className="cv-head"><Icon name="close" size={13} /> {t('ပယ်ဖျက်ပြီး')} · {voidedItems.length}</div>
+            {voidedItems.map(it => (
+              <div className="cv-row" key={it.id}>
+                <span>{it.name} × {it.qty}</span>
+                {it.cancel_reason && <small>{it.cancel_reason}</small>}
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="cart-foot">
           <div className="cart-total-line">
             <span>{splitMode ? t('ခွဲမည့် ပစ္စည်း') : t('စုစုပေါင်း')}</span>
@@ -483,6 +545,15 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
               <div className="cart-actions">
                 <button className="btn danger sm" onClick={voidOrder} disabled={!isOpen}>{t('ပယ်ဖျက်')}</button>
                 <button className="btn ghost sm" onClick={() => setSplitMode(true)} disabled={!isOpen || activeItems.length < 2 || isLocal || !online}>{t('ဘီလ်ခွဲ')}</button>
+                {order.type === 'dine_in' && (
+                  <button className="btn ghost sm" onClick={() => setMoveOpen(true)} disabled={!isOpen || isLocal || !online}>
+                    <Icon name="table" size={15} /> {t('စားပွဲရွှေ့')}
+                  </button>
+                )}
+                <button className="btn ghost sm" onClick={() => setMergeOpen(true)}
+                  disabled={!isOpen || isLocal || !online || !(data.openOrders || []).some(o => o.id !== order.id)}>
+                  <Icon name="plus" size={15} /> {t('ဘီလ်ပေါင်း')}
+                </button>
                 <button className="btn ghost sm" onClick={onBack}>{t('နောက်သို့')}</button>
               </div>
             </>
@@ -515,12 +586,62 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
           <Field label={t('မှတ်ချက်')} hint={t('ဥပမာ — အစပ်လျှော့၊ ဆီမပါ')}>
             <input value={editItem.note || ''} onChange={e => setEditItem({ ...editItem, note: e.target.value })} />
           </Field>
-          <button className="btn danger sm" onClick={removeItem}><Icon name="trash" size={16} /> {t('ဖျက်မည်')}</button>
+          {(editItem.status === 'cooking' || editItem.status === 'served') && (
+            <Field label={t('ပယ်ဖျက်ရသည့် အကြောင်းပြချက်')} hint={t('မီးဖိုပို့ပြီး ဟင်းကို ပယ်ဖျက်ရန် မဖြစ်မနေ ဖြည့်ပါ')}>
+              <input value={editItem.cancel_reason || ''} onChange={e => setEditItem({ ...editItem, cancel_reason: e.target.value })} />
+            </Field>
+          )}
+          <button className="btn danger sm" onClick={removeItem}>
+            <Icon name="trash" size={16} /> {editItem.status === 'cooking' || editItem.status === 'served' ? t('ဟင်းပယ်ဖျက်မည်') : t('ဖျက်မည်')}
+          </button>
+        </Modal>
+      )}
+
+      {moveOpen && (
+        <Modal title={t('စားပွဲရွှေ့မည်')} onClose={() => setMoveOpen(false)}
+          footer={<button className="btn ghost" onClick={() => setMoveOpen(false)}>{t('မလုပ်တော့')}</button>}>
+          <p className="hint mt-0">{t('ဤဘီလ်ကို ရွှေ့မည့် လွတ်နေသော စားပွဲကို ရွေးပါ')}</p>
+          <div className="list">
+            {data.tables.filter(tb => !tb.order_id && !drafts.some(d => d.status === 'open' && d.table_id === tb.id)).map(tb => (
+              <button key={tb.id} className="list-row" disabled={busyAction} onClick={() => moveOrder(tb)}>
+                <span className="quick-ico sm"><Icon name="table" size={17} /></span>
+                <div className="grow">
+                  <strong>{tb.name}</strong>
+                  <small className="muted">{tb.zone} · {tb.seats} {t('ထိုင်ခုံ')}</small>
+                </div>
+                <Icon name="arrow" size={16} />
+              </button>
+            ))}
+            {!data.tables.some(tb => !tb.order_id) && <Empty text={t('လွတ်နေသော စားပွဲ မရှိပါ')} />}
+          </div>
+        </Modal>
+      )}
+
+      {mergeOpen && (
+        <Modal title={t('ဘီလ်ပေါင်းမည်')} onClose={() => setMergeOpen(false)}
+          footer={<button className="btn ghost" onClick={() => setMergeOpen(false)}>{t('မလုပ်တော့')}</button>}>
+          <p className="hint mt-0">{t('ဤဘီလ်၏ ပစ္စည်းများကို ရွေးထားသော ဘီလ်ထဲ ပေါင်းထည့်မည်')}</p>
+          <div className="list">
+            {(data.openOrders || []).filter(o => o.id !== order.id).map(o => (
+              <button key={o.id} className="list-row" disabled={busyAction} onClick={() => mergeOrder(o)}>
+                <span className="quick-ico sm"><Icon name="receipt" size={17} /></span>
+                <div className="grow">
+                  <strong>#{o.order_no}</strong>
+                  <small className="muted">
+                    {o.type === 'dine_in' ? (o.table_name || t('စားပွဲ')) : o.type === 'delivery' ? t('ပို့ဆောင်') : t('ပါဆယ်')}
+                    {' · '}{o.item_count} {t('မျိုး')}
+                  </small>
+                </div>
+                <span className="amount">{money(o.total)}</span>
+                <Icon name="arrow" size={16} />
+              </button>
+            ))}
+          </div>
         </Modal>
       )}
 
       {payOpen && (
-        <PayModal order={order} subtotal={subtotal}
+        <PayModal order={order} subtotal={subtotal} shiftOpen={!!data.shift}
           settings={isLocal ? { ...settings, ...(order.settings || {}) } : settings}
           customers={data.customers} promotions={data.promotions || []}
           offline={isLocal} onOffline={offlinePaid}
@@ -543,16 +664,17 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
   );
 }
 
-function PayModal({ order, subtotal, settings, customers = [], promotions = [], offline = false, onOffline, onClose, onPaid }) {
+function PayModal({ order, subtotal, settings, customers = [], promotions = [], offline = false, shiftOpen = true, onOffline, onClose, onPaid }) {
   const { t } = useI18n();
   const taxRate = Number(settings.tax_rate || 0);
   const serviceRate = Number(settings.service_rate || 0);
-  const initialTotal = subtotal + Math.round(subtotal * taxRate / 100) + Math.round(subtotal * serviceRate / 100);
+  const baseTotal = subtotal + Math.round(subtotal * taxRate / 100) + Math.round(subtotal * serviceRate / 100);
   const [discount, setDiscount] = useState(0);
   const [promotionId, setPromotionId] = useState('');
-  const [rows, setRows] = useState([{ method: 'cash', amount: String(initialTotal) }]);
+  const [rows, setRows] = useState([{ method: 'cash', amount: String(baseTotal) }]);
   const [methods, setMethods] = useState(PAY_FALLBACK);
   const [customerId, setCustomerId] = useState(order.customer_id || '');
+  const [pointsUsed, setPointsUsed] = useState(0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
@@ -575,7 +697,15 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
   const taxable = subtotal - disc;
   const tax = Math.round(taxable * taxRate / 100);
   const service = Math.round(taxable * serviceRate / 100);
-  const total = taxable + tax + service;
+  const grossTotal = taxable + tax + service;
+  const pointValue = Math.max(0, Math.round(Number(settings.point_value ?? 1)));
+  const customer = customers.find(c => String(c.id) === String(customerId));
+  const maxPoints = customer && pointValue > 0
+    ? Math.max(0, Math.min(Number(customer.points || 0), Math.floor(grossTotal / pointValue)))
+    : 0;
+  const usedPoints = Math.min(Math.max(0, Math.round(Number(pointsUsed) || 0)), maxPoints);
+  const pointsAmount = usedPoints * pointValue;
+  const total = grossTotal - pointsAmount;
   const paidSum = rows.reduce((s, r) => s + amountOf(r), 0);
   const remaining = Math.max(0, total - paidSum);
   const hasCash = rows.some(r => r.method === 'cash' && amountOf(r) > 0);
@@ -596,31 +726,31 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
     ? Math.round(subtotal * Number(p.value || 0) / 100)
     : Number(p.value || 0);
 
-  const syncSingleCashRow = (newDiscount) => {
-    if (rows.length !== 1 || rows[0].method !== 'cash') return;
-    const d = Math.min(Math.max(0, Number(newDiscount) || 0), subtotal);
-    const net = subtotal - d;
-    const next = net + Math.round(net * taxRate / 100) + Math.round(net * serviceRate / 100);
-    setRows([{ ...rows[0], amount: String(next) }]);
-  };
+  useEffect(() => {
+    setPointsUsed(p => Math.min(Math.max(0, Math.round(Number(p) || 0)), maxPoints));
+  }, [maxPoints]);
+  useEffect(() => {
+    setRows(rs => {
+      if (rs.length !== 1 || rs[0].method !== 'cash') return rs;
+      const v = String(total);
+      return rs[0].amount === v ? rs : [{ ...rs[0], amount: v }];
+    });
+  }, [total]);
+  useEffect(() => { setPointsUsed(0); }, [customerId]);
 
   const applyPromo = (p) => {
     if (promotionId === p.id) {
       setPromotionId('');
       setDiscount(0);
-      syncSingleCashRow(0);
       return;
     }
-    const value = Math.min(subtotal, promoValue(p));
     setPromotionId(p.id);
-    setDiscount(value);
-    syncSingleCashRow(value);
+    setDiscount(Math.min(subtotal, promoValue(p)));
   };
 
   const changeDiscount = (v) => {
     setDiscount(v);
     setPromotionId('');
-    syncSingleCashRow(v);
   };
 
   const setRow = (i, patch) => setRows(rs => rs.map((r, idx) => idx === i ? { ...r, ...patch } : r));
@@ -672,6 +802,7 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
           discount: disc,
           promotionId: promotionId || null,
           customerId: customerId || null,
+          pointsUsed: usedPoints,
           payments
         })
       });
@@ -688,8 +819,14 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
   return (
     <Modal title={t('ငွေရှင်း')} onClose={onClose} footer={<>
       <button className="btn ghost" onClick={onClose}>{t('မလုပ်တော့')}</button>
-      <button className="btn" disabled={busy} onClick={submit}>{t('ငွေရှင်းမည်')} · {money(total)}</button>
+      <button className="btn" disabled={busy || (!offline && !shiftOpen)} onClick={submit}>{t('ငွေရှင်းမည်')} · {money(total)}</button>
     </>}>
+      {!offline && !shiftOpen && (
+        <div className="offline-note mt-0 shift-warn">
+          <Icon name="clock" size={15} />
+          {t('ဆိုင်မဖွင့်ရသေးပါ — ငွေရှင်းမီ ဆိုင်ဖွင့်ပါ')}
+        </div>
+      )}
       {offline && (
         <div className="offline-note mt-0">
           <Icon name="wifi" size={15} />
@@ -709,6 +846,7 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
         </div>
         {tax > 0 && <div className="row between"><span>{t('အခွန်')} ({taxRate}%)</span><span>{money(tax)}</span></div>}
         {service > 0 && <div className="row between"><span>{t('ဝန်ဆောင်ခ')} ({serviceRate}%)</span><span>{money(service)}</span></div>}
+        {pointsAmount > 0 && <div className="row between"><span>{t('အမှတ် အသုံးပြု')} ({usedPoints})</span><span>-{money(pointsAmount)}</span></div>}
         <div className="row between total"><span>{t('ကျသင့်ငွေ')}</span><strong>{money(total)}</strong></div>
       </div>
 
@@ -768,14 +906,23 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
         {change > 0 && <div className="row between"><span>{t('ပြန်အမ်းငွေ')}</span><strong>{money(change)}</strong></div>}
       </div>
 
-      {hasCredit && (
-        <Field label={t('အကြွေး အဖွဲ့ဝင်')}>
+      {customers.length > 0 && (
+        <Field label={t('အသင်းဝင် (မလိုအပ်ပါ)')}>
           <select value={customerId} onChange={e => setCustomerId(e.target.value)}>
             <option value="">{t('— ရွေးချယ်ပါ —')}</option>
             {customers.map(c => (
               <option key={c.id} value={c.id}>{c.name}{c.phone ? ` · ${c.phone}` : ''}</option>
             ))}
           </select>
+        </Field>
+      )}
+      {!offline && customer && Number(customer.points || 0) > 0 && pointValue > 0 && (
+        <Field
+          label={`${t('အမှတ် အသုံးပြုမည်')} · ${t('လက်ကျန်')} ${Number(customer.points).toLocaleString()}`}
+          hint={`1 ${t('အမှတ်')} = ${money(pointValue)} · ${t('အများဆုံး')} ${maxPoints}`}
+        >
+          <input type="number" min="0" max={maxPoints} value={pointsUsed}
+            onChange={e => setPointsUsed(e.target.value)} />
         </Field>
       )}
 

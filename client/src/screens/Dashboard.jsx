@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { api, money, today } from '../api.js';
 import { useI18n } from '../i18n.jsx';
 import { Icon, ModalFrame, stationLabel } from '../components/ui.jsx';
+import { AlinnThitPromo } from '../components/AlinnThitPromo.jsx';
 
 const METHOD_KEY = {
   cash: 'လက်ငင်း',
@@ -40,6 +41,20 @@ export default function Dashboard({ data, go }) {
   const [catalogModalOpen, setCatalogModalOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [selectedTableForQr, setSelectedTableForQr] = useState('');
+  const [promoVisible, setPromoVisible] = useState(() => {
+    try {
+      return Date.now() > Number(localStorage.getItem('alinnthit_promo_until') || 0);
+    } catch {
+      return true;
+    }
+  });
+
+  const dismissPromo = () => {
+    setPromoVisible(false);
+    try {
+      localStorage.setItem('alinnthit_promo_until', String(Date.now() + 3 * 24 * 60 * 60 * 1000));
+    } catch { /* storage unavailable */ }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -220,16 +235,16 @@ export default function Dashboard({ data, go }) {
             </div>
           </div>
 
-          {/* Card 5: Estimated Profit */}
+          {/* Card 5: Estimated Net Profit */}
           <div className="stat-card-modern emerald">
             <div className="scm-top">
-              <span className="scm-title">{t('ခန့်မှန်း အမြတ်')}</span>
+              <span className="scm-title">{t('ခန့်မှန်း အသားတင် အမြတ်')}</span>
               <span className="scm-icon"><Icon name="cash" size={18} /></span>
             </div>
-            <div className="scm-value">{money(sum?.profit || 0)}</div>
+            <div className="scm-value">{money(sum?.netProfit || 0)}</div>
             <div className="scm-sub">
-              <span className="scm-pill positive">{sum?.margin || 0}% {t('အမြတ်')}</span>
-              <span className="scm-desc">{t('ကုန်ကျစရိတ်')} {money(sum?.cost || 0)}</span>
+              <span className="scm-pill positive">{sum?.netMargin || 0}% {t('အမြတ်')}</span>
+              <span className="scm-desc">{t('အသုံးစရိတ်')} {money(sum?.expenses || 0)}</span>
             </div>
           </div>
 
@@ -485,6 +500,8 @@ export default function Dashboard({ data, go }) {
         </section>
       </div>
 
+      {promoVisible && <AlinnThitPromo onClose={dismissPromo} />}
+
       {/* Online Customer Catalog / QR Code Modal */}
       {catalogModalOpen && (
         <ModalFrame className="catalog-share-modal" onClose={() => setCatalogModalOpen(false)}>
@@ -503,7 +520,7 @@ export default function Dashboard({ data, go }) {
             <div className="csm-main">
               <div className="csm-qr-card">
                 <div className="csm-qr-top">
-                  <span className="csm-qr-logo">စည်</span>
+                  <img className="csm-qr-logo" src="/icon.svg" alt="" width="30" height="30" />
                   <div className="csm-qr-meta">
                     <div className="csm-qr-shop-name">{data.settings?.shop_name || 'စည်တော်ကြီး စားသောက်ဆိုင်'}</div>
                     <div className="csm-qr-sub">

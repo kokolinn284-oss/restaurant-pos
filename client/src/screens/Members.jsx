@@ -5,6 +5,9 @@ import { Icon, Modal, Field, SearchBox } from '../components/ui.jsx';
 
 const TIER_KEY = { normal: 'ပုံမှန်', silver: 'ငွေရောင်', gold: 'ရွှေရောင်' };
 const TIER_ORDER = ['gold', 'silver', 'normal'];
+const CREDIT_METHODS = [
+  ['cash', 'လက်ငင်း'], ['kbzpay', 'KBZPay'], ['wavepay', 'WavePay'], ['bank', 'ဘဏ်/ကတ်']
+];
 
 export default function Members({ data, reload, showToast }) {
   const { t } = useI18n();
@@ -69,7 +72,10 @@ export default function Members({ data, reload, showToast }) {
 
   const payCredit = async () => {
     try {
-      await api(`/credits/${settle.id}/pay`, { method: 'POST', body: JSON.stringify({ amount: settle.pay }) });
+      await api(`/credits/${settle.id}/pay`, {
+        method: 'POST',
+        body: JSON.stringify({ amount: settle.pay, method: settle.method || 'cash' })
+      });
       setSettle(null);
       await loadCredits();
       await reload();
@@ -198,7 +204,7 @@ export default function Members({ data, reload, showToast }) {
               {credits.map(c => {
                 const remain = Number(c.amount || 0) - Number(c.paid || 0);
                 return (
-                  <button type="button" className="credit-row" key={c.id} onClick={() => setSettle({ ...c, pay: remain })}>
+                  <button type="button" className="credit-row" key={c.id} onClick={() => setSettle({ ...c, pay: remain, method: 'cash' })}>
                     <span className="credit-avatar">{initialOf(c.customer_name)}</span>
                     <span className="credit-main">
                       <span className="credit-name-row">
@@ -294,6 +300,11 @@ export default function Members({ data, reload, showToast }) {
           </div>
           <Field label={t('ဖြတ်မည့် ငွေ')}>
             <input type="number" value={settle.pay} onChange={e => setSettle({ ...settle, pay: e.target.value })} />
+          </Field>
+          <Field label={t('ငွေပေးချေနည်း')}>
+            <select value={settle.method || 'cash'} onChange={e => setSettle({ ...settle, method: e.target.value })}>
+              {CREDIT_METHODS.map(([code, label]) => <option key={code} value={code}>{t(label)}</option>)}
+            </select>
           </Field>
         </Modal>
       )}

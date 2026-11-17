@@ -14,6 +14,7 @@ export default function Reports({ showToast }) {
   const [items, setItems] = useState([]);
   const [alcohol, setAlcohol] = useState([]);
   const [shift, setShift] = useState(null);
+  const [shiftHistory, setShiftHistory] = useState([]);
   const [shiftModal, setShiftModal] = useState(null);
   const [cash, setCash] = useState('');
   const [note, setNote] = useState('');
@@ -21,18 +22,20 @@ export default function Reports({ showToast }) {
 
   const load = async (d) => {
     try {
-      const [s, it, sh, alc, st] = await Promise.all([
+      const [s, it, sh, alc, st, hist] = await Promise.all([
         api(`/reports/summary?date=${d}`),
         api(`/reports/items?from=${d}&to=${d}`),
         api('/shifts/current'),
         api(`/reports/items?from=${d}&to=${d}&alcohol=1`),
-        api(`/reports/staff?from=${d}&to=${d}`)
+        api(`/reports/staff?from=${d}&to=${d}`),
+        api('/shifts')
       ]);
       setSum(s);
       setItems(it);
       setAlcohol(alc);
       setShift(sh);
       setStaffSales(st);
+      setShiftHistory(hist);
       const from = new Date(d);
       from.setDate(from.getDate() - 6);
       const f = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}-${String(from.getDate()).padStart(2, '0')}`;
@@ -105,6 +108,7 @@ export default function Reports({ showToast }) {
             <div><span>Order</span><strong>{shift.orderCount}</strong></div>
             <div><span>{t('လက်ငင်း ငွေ')}</span><strong>{money(shift.cash)}</strong></div>
             <div><span>{t('အကြွေး')}</span><strong>{money(shift.byMethod.find(m => m.method === 'credit')?.amount || 0)}</strong></div>
+            <div><span>{t('အကြွေး ပြန်ရငွေ')}</span><strong>{money(shift.creditTotal || 0)}</strong></div>
             <div><span>{t('ပိတ်ရန် မျှော်မှန်း')}</span><strong>{money(shift.expectedCash)}</strong></div>
           </div>
         )}
@@ -117,8 +121,9 @@ export default function Reports({ showToast }) {
         <div className="stat-card rose"><span>{t('အသုံးစရိတ်')}</span><strong>{money(sum?.expenses || 0)}</strong></div>
         <div className="stat-card indigo"><span>{t('အရက်/ဘီယာ အရောင်း')}</span><strong>{money(sum?.alcoholSales || 0)}</strong><small className="muted">{sum?.alcoholQty || 0} {t('ခု')}</small></div>
         <div className="stat-card"><span>{t('အကြွေး ကျန်ငွေ')}</span><strong>{money(sum?.creditOutstanding || 0)}</strong></div>
+        <div className="stat-card"><span>{t('အကြွေး ပြန်ရငွေ')}</span><strong>{money(sum?.creditPaid || 0)}</strong><small className="muted">{t('အကြွေး ဖြတ်ပြီး')}</small></div>
         <div className="stat-card rose"><span>{t('ဟင်းခ ကုန်ကျစရိတ်')}</span><strong>{money(sum?.cost || 0)}</strong><small className="muted">{t('ယနေ့')}</small></div>
-        <div className="stat-card"><span>{t('အမြတ်')}</span><strong>{money(sum?.profit || 0)}</strong><small className="muted">{sum?.margin || 0}% {t('အမြတ်နှုန်း')}</small></div>
+        <div className="stat-card"><span>{t('အသားတင် အမြတ်')}</span><strong>{money(sum?.netProfit || 0)}</strong><small className="muted">{sum?.netMargin || 0}% {t('အမြတ်နှုန်း')} · {t('အသုံးစရိတ် နုတ်ပြီး')}</small></div>
       </div>
 
       <div className="two-col">
@@ -216,6 +221,48 @@ export default function Reports({ showToast }) {
                     <td>{money(d.subtotal)}</td>
                     <td>{money(d.discount)}</td>
                     <td><strong>{money(d.total)}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <h3><Icon name="clock" size={16} /> {t('ဆိုင်ဖွင့်/ပိတ် မှတ်တမ်း')}</h3>
+          <span className="badge">{shiftHistory.length}</span>
+        </div>
+        {shiftHistory.length === 0 ? <div className="empty">{t('ဒေတာ မရှိပါ')}</div> : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>{t('ဖွင့်ချိန်')}</th>
+                  <th>{t('ဝန်ထမ်း')}</th>
+                  <th>{t('အရောင်း')}</th>
+                  <th>{t('လက်ငင်း ငွေ')}</th>
+                  <th>{t('အကြွေး ပြန်ရငွေ')}</th>
+                  <th>{t('မျှော်မှန်း')}</th>
+                  <th>{t('ပိတ်ငွေ')}</th>
+                  <th>{t('ကွာခြားငွေ')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shiftHistory.map(h => (
+                  <tr key={h.shift.id}>
+                    <td>
+                      <div>{h.shift.opened_at?.slice(0, 10)}</div>
+                      <small className="muted">{h.shift.opened_at?.slice(11, 16)}{h.shift.closed_at ? ` → ${h.shift.closed_at.slice(11, 16)}` : ` · ${t('ဖွင့်ထားဆဲ')}`}</small>
+                    </td>
+                    <td>{h.staff_name || '—'}</td>
+                    <td>{money(h.sales)}</td>
+                    <td>{money(h.cash)}</td>
+                    <td>{money(h.creditTotal || 0)}</td>
+                    <td>{money(h.expectedCash)}</td>
+                    <td>{h.shift.closing_cash != null ? money(h.shift.closing_cash) : '—'}</td>
+                    <td><strong className={h.difference ? (h.difference < 0 ? 'neg' : 'pos') : ''}>{h.difference != null ? money(h.difference) : '—'}</strong></td>
                   </tr>
                 ))}
               </tbody>

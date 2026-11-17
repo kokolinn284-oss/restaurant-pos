@@ -5,6 +5,8 @@ import { Icon, Modal, Field, Empty } from '../components/ui.jsx';
 import { DataTableToolbar, Pagination } from '../components/DataTableToolbar.jsx';
 import { downloadCsv } from '../csv.js';
 
+const fmtQty = (value) => String(Math.round((Number(value) || 0) * 1000) / 1000);
+
 export default function Inventory({ reload, showToast, go }) {
   const { t } = useI18n();
   const [inv, setInv] = useState({ items: [], moves: [] });
@@ -202,7 +204,7 @@ export default function Inventory({ reload, showToast, go }) {
       it.sku || '',
       it.name,
       it.category || '',
-      it.qty,
+      fmtQty(it.qty),
       it.unit,
       it.reorder_level,
       it.cost,
@@ -372,7 +374,7 @@ export default function Inventory({ reload, showToast, go }) {
 
                     <div className="inv-stock-display">
                       <span className="inv-stock-number" style={{ color: low ? '#dc2626' : 'inherit' }}>
-                        {it.qty}
+                        {fmtQty(it.qty)}
                       </span>
                       <span className="inv-stock-unit">{it.unit}</span>
                     </div>
@@ -482,7 +484,7 @@ export default function Inventory({ reload, showToast, go }) {
                           {it.sku && <small className="muted"> ({it.sku})</small>}
                         </td>
                         <td>
-                          <strong style={{ color: low ? '#ef4444' : 'inherit' }}>{it.qty}</strong>
+                          <strong style={{ color: low ? '#ef4444' : 'inherit' }}>{fmtQty(it.qty)}</strong>
                         </td>
                         <td className="muted">{it.unit}</td>
                         <td className="muted">{it.reorder_level}</td>
@@ -595,7 +597,7 @@ export default function Inventory({ reload, showToast, go }) {
                   </div>
                   <span className="amount">
                     {m.type === 'out' || m.type === 'sale' ? '-' : '+'}
-                    {m.qty}
+                    {fmtQty(m.qty)}
                   </span>
                 </div>
               );

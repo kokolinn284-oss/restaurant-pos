@@ -52,6 +52,7 @@ async function seed() {
   const login = await req('/api/auth/login', { method: 'POST', body: { pin: '1234' } });
   const token = login.data.token;
   const boot = await req('/api/bootstrap', { token });
+  await req('/api/shifts/open', { method: 'POST', token, body: { opening_cash: 10000 } });
   const table = boot.data.tables.find(t => !t.order_id);
   const item = boot.data.items.find(i => i.available);
   const o = await req('/api/orders', { method: 'POST', token, body: { type: 'dine_in', tableId: table.id, guests: 2 } });

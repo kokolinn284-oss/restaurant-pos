@@ -124,6 +124,9 @@ export default function Settings({ section = 'shop', data, reload, showToast, on
             <Field label={t('အခွန် %')}><input type="number" value={form.tax_rate || 0} onChange={e => setForm({ ...form, tax_rate: e.target.value })} /></Field>
             <Field label={t('ဝန်ဆောင်ခ %')}><input type="number" value={form.service_rate || 0} onChange={e => setForm({ ...form, service_rate: e.target.value })} /></Field>
             <Field label={t('အမှတ် — ၁,၀၀၀ ကျပ်လျှင်')}><input type="number" value={form.points_per_1000 || 1} onChange={e => setForm({ ...form, points_per_1000: e.target.value })} /></Field>
+            <Field label={t('အမှတ် ၁ ခု လဲလှယ်နှုန်း (ကျပ်)')} hint={t('ငွေရှင်းချိန် အမှတ်သုံးလျှင် ၁ မှတ် = ဤကျပ်ငွေ')}>
+              <input type="number" min="0" value={form.point_value ?? 1} onChange={e => setForm({ ...form, point_value: e.target.value })} />
+            </Field>
             <Field label={t('ဘောက်ချာ အောက်ခြေ စာသား')}><input value={form.footer || ''} onChange={e => setForm({ ...form, footer: e.target.value })} /></Field>
           </div>
           <div className="panel-actions">

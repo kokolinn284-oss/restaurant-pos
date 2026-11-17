@@ -1,4 +1,4 @@
-const CACHE = 'pos-v2';
+const CACHE = 'pos-v3';
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => {

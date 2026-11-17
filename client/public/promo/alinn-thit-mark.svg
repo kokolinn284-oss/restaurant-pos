@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="ALINN THIT">
+  <defs>
+    <linearGradient id="at-tile" x1="8" y1="3" x2="41" y2="46" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3b9bf7"/>
+      <stop offset=".55" stop-color="#1266d6"/>
+      <stop offset="1" stop-color="#082b63"/>
+    </linearGradient>
+    <linearGradient id="at-orbit" x1="7" y1="34" x2="41" y2="41" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#eaf4ff"/>
+      <stop offset="1" stop-color="#8ec5ff"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="48" height="48" rx="13" fill="url(#at-tile)"/>
+  <rect x=".75" y=".75" width="46.5" height="46.5" rx="12.4" fill="none" stroke="#ffffff" stroke-opacity=".24" stroke-width="1.5"/>
+
+  <path d="M7.6 35.4c8.4 7 24.6 7 32.8-.6" fill="none" stroke="url(#at-orbit)" stroke-opacity=".9" stroke-width="2.6" stroke-linecap="round"/>
+
+  <path fill="#ffffff" fill-rule="evenodd" clip-rule="evenodd"
+    d="M11.8 38.5 21.9 9.6c.5-1.35 2.3-1.35 2.8 0l10.1 28.9h-5.9l-2-5.9h-7.2l-2 5.9H11.8Zm10.1-10.6h3.9l-2-6.1-1.9 6.1Z"/>
+
+  <rect x="33.4" y="8.4" width="5.1" height="5.1" rx="1.2" fill="#9fd5ff"/>
+  <rect x="39.3" y="8.4" width="3.1" height="3.1" rx=".9" fill="#ffffff" fill-opacity=".9"/>
+  <rect x="39.3" y="12.9" width="3.1" height="3.1" rx=".9" fill="#9fd5ff" fill-opacity=".6"/>
+</svg>

@@ -1,6 +1,46 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
-  <rect width="192" height="192" rx="40" fill="#0f766e"/>
-  <path d="M40 98h112c0 30-25 50-56 50s-56-20-56-50z" fill="#fde68a"/>
-  <path d="M48 98h96" stroke="#f59e0b" stroke-width="8" stroke-linecap="round"/>
-  <path d="M68 74c0-8 8-8 8-16M96 74c0-8 8-8 8-16M124 74c0-8 8-8 8-16" stroke="#fef3c7" stroke-width="6" stroke-linecap="round" fill="none"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="Si Daw Gyi Restaurant">
+  <defs>
+    <linearGradient id="sdg-bg" x1="28" y1="18" x2="168" y2="178" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#12897a"/>
+      <stop offset=".55" stop-color="#0f766e"/>
+      <stop offset="1" stop-color="#064e3b"/>
+    </linearGradient>
+    <linearGradient id="sdg-gold" x1="56" y1="88" x2="136" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset=".45" stop-color="#fbbf24"/>
+      <stop offset="1" stop-color="#d97706"/>
+    </linearGradient>
+    <linearGradient id="sdg-rim" x1="52" y1="74" x2="140" y2="94" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fffbeb"/>
+      <stop offset="1" stop-color="#fde68a"/>
+    </linearGradient>
+    <radialGradient id="sdg-glow" cx="0" cy="0" r="1" gradientTransform="translate(64 42) rotate(48) scale(120)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5eead4" stop-opacity=".35"/>
+      <stop offset="1" stop-color="#5eead4" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="192" height="192" rx="42" fill="url(#sdg-bg)"/>
+  <rect width="192" height="192" rx="42" fill="url(#sdg-glow)"/>
+  <rect x="5" y="5" width="182" height="182" rx="37" fill="none" stroke="#fcd34d" stroke-opacity=".5" stroke-width="2"/>
+
+  <path d="M74 64c-8-9 6-14-2-25M96 61c-8-10 6-15-2-26M118 64c-8-9 6-14-2-25"
+    fill="none" stroke="#fef3c7" stroke-width="7" stroke-linecap="round" opacity=".92"/>
+
+  <path d="M44 86c2 36 20 64 52 64s50-28 52-64c-14 13-90 13-104 0Z" fill="url(#sdg-gold)"/>
+  <path d="M52 100c4 28 18 47 44 47s40-19 44-47" fill="none" stroke="#b45309" stroke-opacity=".28" stroke-width="4"/>
+
+  <path d="M64 95c-2 22 3 41 12 54M80 96c-1 23 1 43 6 56M96 96v56M112 96c1 23-1 43-6 56M128 95c2 22-3 41-12 54"
+    fill="none" stroke="#92400e" stroke-opacity=".42" stroke-width="4" stroke-linecap="round"/>
+  <path d="M50 108c14 7 78 7 92 0M53 124c13 7 73 7 86 0"
+    fill="none" stroke="#7c2d12" stroke-opacity=".55" stroke-width="5" stroke-linecap="round"/>
+
+  <ellipse cx="96" cy="84" rx="52" ry="15" fill="url(#sdg-rim)"/>
+  <ellipse cx="96" cy="84" rx="41" ry="9.5" fill="#b45309"/>
+  <ellipse cx="96" cy="85" rx="34" ry="6.5" fill="#fbbf24" opacity=".55"/>
+
+  <circle cx="45" cy="94" r="7" fill="#dc2626"/>
+  <circle cx="147" cy="94" r="7" fill="#dc2626"/>
+  <circle cx="43" cy="91.5" r="2.2" fill="#fecaca" opacity=".8"/>
+  <circle cx="145" cy="91.5" r="2.2" fill="#fecaca" opacity=".8"/>
 </svg>

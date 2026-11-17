@@ -8,7 +8,7 @@ export default function Login({ onLogin }) {
   const [pin, setPin] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  const [shop, setShop] = useState({ shop_name: 'စည်တော်ကြီး စားသောက်ဆိုင်', shop_name_en: 'Sintawgyi Restaurant' });
+  const [shop, setShop] = useState({ shop_name: 'စည်တော်ကြီး စားသောက်ဆိုင်', shop_name_en: 'Si Daw Gyi Restaurant' });
 
   useEffect(() => {
     fetch('/api/shop').then(r => r.json()).then(setShop).catch(() => {});
@@ -50,7 +50,7 @@ export default function Login({ onLogin }) {
       </div>
 
       <div className="login-card">
-        <div className="login-logo"><Icon name="bowl" size={36} /></div>
+        <img className="login-logo" src="/icon.svg" alt="" width="74" height="74" />
         <h1>{title}</h1>
         <div className="shop-en">{sub}</div>
         <p className="muted mt-14">{t('PIN ကို ထည့်ပါ')}</p>

@@ -647,24 +647,15 @@ export default function MenuAdmin({ data, reload, showToast }) {
                             />
                           </label>
 
-                          {/* Top-right Badges (18+, Code, Station) */}
+                          {/* Top-right Badge (18+ only — details live in the meta line) */}
                           <div className="dish-media-badges">
                             {it.is_alcohol ? <span className="alc-badge">18+</span> : null}
-                            {it.code ? <span className="dish-code-badge">{it.code}</span> : null}
-                            <span className="station-badge">
-                              {it.station === 'kitchen' ? t('မီးဖို') : stationName(it.station)}
-                            </span>
                           </div>
 
-                          {/* Bottom-left Category pill */}
-                          <span className="dish-cat-pill">
-                            {cat?.name || '—'}
-                          </span>
-
-                          {/* Bottom-right Status Badge Toggle */}
+                          {/* Bottom-right Status Toggle */}
                           <button
                             type="button"
-                            className={`badge dish-status-badge ${it.available ? 'ok' : 'bad'}`}
+                            className={`dish-status-badge ${it.available ? 'ok' : 'bad'}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               toggle(it);
@@ -690,22 +681,32 @@ export default function MenuAdmin({ data, reload, showToast }) {
                             {it.unit && <span className="dish-unit-pill">/{it.unit}</span>}
                           </div>
 
-                          {/* Compact one-line financials */}
-                          <div className="dish-financials-box">
-                            <span className="fin-item">
-                              <span className="fin-label">{t('ဈေး')}</span>
-                              <strong className="fin-price" title={money(it.price)}>{compactMoney(it.price)}</strong>
+                          {/* Category · Code · Station */}
+                          <div className="dish-meta-row">
+                            <span className="dish-cat-text" title={cat?.name || ''}>{cat?.name || '—'}</span>
+                            {it.code ? (
+                              <>
+                                <span className="dish-meta-sep">·</span>
+                                <span className="dish-meta-code">{it.code}</span>
+                              </>
+                            ) : null}
+                            <span className="dish-meta-sep">·</span>
+                            <span className="dish-meta-station">
+                              {it.station === 'kitchen' ? t('မီးဖို') : stationName(it.station)}
                             </span>
-                            <span className="fin-item">
-                              <span className="fin-label">{t('ကုန်')}</span>
-                              <span className="fin-cost" title={it.cost > 0 ? money(it.cost) : ''}>
-                                {it.cost > 0 ? compactMoney(it.cost) : '—'}
-                              </span>
+                          </div>
+
+                          {/* Price · Cost · Profit */}
+                          <div className="dish-price-row">
+                            <span className="dish-price" title={money(it.price)}>
+                              {compactMoney(it.price)}<small>{isEn ? 'Ks' : 'ကျပ်'}</small>
+                            </span>
+                            <span className="dish-cost" title={it.cost > 0 ? money(it.cost) : ''}>
+                              {t('ကုန်')} {it.cost > 0 ? compactMoney(it.cost) : '—'}
                             </span>
                             {profit > 0 && (
-                              <span className="profit-tag" title={`${t('အသားတင် အမြတ်ငွေ')} ${money(profit)}`}>
-                                +{compactMoney(profit)}
-                                <small>({marginPct}%)</small>
+                              <span className="dish-profit" title={`${t('အသားတင် အမြတ်ငွေ')} ${money(profit)}`}>
+                                +{compactMoney(profit)}<small> · {marginPct}%</small>
                               </span>
                             )}
                           </div>

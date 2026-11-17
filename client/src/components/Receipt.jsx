@@ -22,6 +22,7 @@ export default function Receipt({ order, settings, tableName }) {
       </div>
       <hr />
       <div className="r-row"><span>Order</span><span>#{order.order_no}</span></div>
+      {order.member_name && <div className="r-row"><span>{t('အဖွဲ့ဝင်')}</span><span>{order.member_name}</span></div>}
       <div className="r-row"><span>{t('အမျိုးအစား')}</span><span>{typeLabel}</span></div>
       <div className="r-row"><span>{t('ရက်စွဲ')}</span><span>{order.closed_at || order.opened_at}</span></div>
       <hr />
@@ -42,6 +43,7 @@ export default function Receipt({ order, settings, tableName }) {
       {order.discount > 0 && <div className="r-row"><span>{t('လျော့ငွေ')}</span><span>-{money(order.discount)}</span></div>}
       {order.tax > 0 && <div className="r-row"><span>{t('အခွန်')}</span><span>{money(order.tax)}</span></div>}
       {order.service > 0 && <div className="r-row"><span>{t('ဝန်ဆောင်ခ')}</span><span>{money(order.service)}</span></div>}
+      {order.points_amount > 0 && <div className="r-row"><span>{t('အမှတ် အသုံးပြု')} ({order.points_used})</span><span>-{money(order.points_amount)}</span></div>}
       <div className="r-row r-total"><span>{t('ကျသင့်ငွေ')}</span><span>{money(order.total)}</span></div>
       {(order.payments || []).map(p => (
         <div className="r-row" key={p.id}><span>{t(p.method_name || METHOD_KEY[p.method] || p.method)}</span><span>{money(p.amount)}</span></div>

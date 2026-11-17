@@ -24,6 +24,8 @@ function normalizeTs(value) {
   return m ? `${m[1]} ${m[2]}:${m[3] || '00'}` : null;
 }
 
+const roundQty = (value) => Math.round((Number(value) || 0) * 1000) / 1000;
+
 const DEFAULT_STATIONS = [
   { value: 'kitchen', label: 'မီးဖိုချောင်', label_en: 'Kitchen' },
   { value: 'bar', label: 'ဘား', label_en: 'Bar' },
@@ -176,6 +178,7 @@ const WAITER_DENY = [
   ['*', /^\/(shifts|reports|settings|backup|staff|credits|expenses|expense-categories)(\/|$)/],
   ['POST|PATCH|DELETE', /^\/payment-methods(\/|$)/],
   ['POST', /^\/orders\/\d+\/(pay|void)$/],
+  ['PATCH', /^\/customers(\/|$)/],
   ['POST|PATCH|DELETE', /^\/(items|categories|inventory|promotions|tables|stations|menu-units)(\/|$)/]
 ];
 const CASHIER_DENY = [
@@ -204,7 +207,7 @@ app.get('/api/catalog/menu', (req, res) => {
   res.json({
     shop: {
       name: settings.shop_name || 'စည်တော်ကြီး စားသောက်ဆိုင်',
-      name_en: settings.shop_name_en || 'Sintawgyi Restaurant',
+      name_en: settings.shop_name_en || 'Si Daw Gyi Restaurant',
       phone: settings.phone || '',
       address: settings.address || '',
       tax_rate: Number(settings.tax_rate || 0),
@@ -383,12 +386,12 @@ app.get('/api/bootstrap', (req, res) => {
     shift: currentShift(),
     promotions: db.prepare('SELECT * FROM promotions ORDER BY active DESC, id').all(),
     lowStockCount: db.prepare('SELECT COUNT(*) AS c FROM inventory_items WHERE qty <= reorder_level').get().c,
-    kitchenCount: db.prepare("SELECT COUNT(*) AS c FROM order_items i LEFT JOIN menu_items m ON m.id = i.item_id WHERE i.status = 'cooking' AND COALESCE(m.station, 'kitchen') = 'kitchen'").get().c,
-    barCount: db.prepare("SELECT COUNT(*) AS c FROM order_items i LEFT JOIN menu_items m ON m.id = i.item_id WHERE i.status = 'cooking' AND m.station = 'bar'").get().c,
+    kitchenCount: db.prepare("SELECT COUNT(*) AS c FROM order_items i JOIN orders o ON o.id = i.order_id AND o.status IN ('open','paid') LEFT JOIN menu_items m ON m.id = i.item_id WHERE i.status = 'cooking' AND COALESCE(m.station, 'kitchen') = 'kitchen'").get().c,
+    barCount: db.prepare("SELECT COUNT(*) AS c FROM order_items i JOIN orders o ON o.id = i.order_id AND o.status IN ('open','paid') LEFT JOIN menu_items m ON m.id = i.item_id WHERE i.status = 'cooking' AND m.station = 'bar'").get().c,
     stationCounts: db.prepare(`
       SELECT COALESCE(m.station, 'kitchen') AS station, COUNT(*) AS c
       FROM order_items i
-      JOIN orders o ON o.id = i.order_id AND o.status = 'open'
+      JOIN orders o ON o.id = i.order_id AND o.status IN ('open','paid')
       LEFT JOIN menu_items m ON m.id = i.item_id
       WHERE i.status = 'cooking'
       GROUP BY COALESCE(m.station, 'kitchen')
@@ -449,12 +452,25 @@ app.post('/api/credits/:id/pay', (req, res) => {
   const id = Number(req.params.id);
   const cur = db.prepare('SELECT * FROM credits WHERE id = ?').get(id);
   if (!cur) return res.status(404).json({ error: 'မတွေ့ပါ' });
-  const amount = Math.max(0, Math.round(Number(req.body.amount) || 0));
-  const paid = Math.min(cur.amount, cur.paid + amount);
-  const settled = paid >= cur.amount ? "datetime('now','localtime')" : 'NULL';
-  db.prepare(`UPDATE credits SET paid = ?, settled_at = ${settled} WHERE id = ?`).run(paid, id);
+  if (cur.settled_at) return res.status(400).json({ error: 'အကြွေး ရှင်းပြီးသားပါ' });
+  const remaining = cur.amount - cur.paid;
+  const amount = Math.min(remaining, Math.max(0, Math.round(Number(req.body.amount) || 0)));
+  if (amount <= 0) return res.status(400).json({ error: 'ဖြတ်မည့်ငွေ ထည့်ပါ' });
+  const method = String(req.body.method || 'cash');
+  const paid = cur.paid + amount;
+  db.exec('BEGIN');
+  try {
+    db.prepare(`UPDATE credits SET paid = ?, settled_at = ${paid >= cur.amount ? "datetime('now','localtime')" : 'NULL'} WHERE id = ?`).run(paid, id);
+    db.prepare('INSERT INTO credit_payments (credit_id, amount, method, staff_id) VALUES (?, ?, ?, ?)')
+      .run(id, amount, method, req.staff?.id ?? null);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    return res.status(500).json({ error: 'အကြွေး ဖြတ်ခြင်း မအောင်မြင်ပါ' });
+  }
   broadcast('credits');
-  res.json({ ok: true, paid, settled: settled !== 'NULL' });
+  broadcast('shifts');
+  res.json({ ok: true, paid, settled: paid >= cur.amount });
 });
 
 /* ---------------- categories ---------------- */
@@ -745,8 +761,8 @@ function applyRecipe(itemId, orderId, multiplier) {
   if (!itemId || !multiplier) return;
   const lines = db.prepare('SELECT * FROM recipe_items WHERE menu_item_id = ?').all(itemId);
   for (const l of lines) {
-    const q = l.qty * multiplier;
-    db.prepare('UPDATE inventory_items SET qty = qty - ? WHERE id = ?').run(q, l.inventory_item_id);
+    const q = roundQty(l.qty * multiplier);
+    db.prepare('UPDATE inventory_items SET qty = ROUND(qty - ?, 3) WHERE id = ?').run(q, l.inventory_item_id);
     db.prepare('INSERT INTO stock_moves (item_id, type, qty, note, staff_id) VALUES (?, ?, ?, ?, ?)')
       .run(l.inventory_item_id, multiplier > 0 ? 'sale' : 'void_return', Math.abs(q), `Order #${orderId}`);
   }
@@ -852,8 +868,35 @@ app.patch('/api/order-items/:id', (req, res) => {
   const id = Number(req.params.id);
   const cur = db.prepare('SELECT * FROM order_items WHERE id = ?').get(id);
   if (!cur) return res.status(404).json({ error: 'မတွေ့ပါ' });
-  const { qty, note, status } = req.body;
+  const order = db.prepare('SELECT status FROM orders WHERE id = ?').get(cur.order_id);
+  if (!order) return res.status(404).json({ error: 'မတွေ့ပါ' });
+  const { qty, note, status, reason } = req.body;
+  const statusOnly = status && qty == null && note == null;
+  if (!statusOnly && order.status !== 'open') return res.status(400).json({ error: 'Order မဖွင့်ထားပါ' });
+  if (status === 'cancelled') {
+    if (order.status !== 'open') return res.status(400).json({ error: 'Order မဖွင့်ထားပါ' });
+    if (cur.status === 'cancelled') return res.json({ ok: true });
+    const why = String(reason || '').trim();
+    if (!why) return res.status(400).json({ error: 'ပယ်ဖျက်ရသည့် အကြောင်းပြချက် ထည့်ပါ' });
+    db.exec('BEGIN');
+    try {
+      if (cur.stock_deducted) applyRecipe(cur.item_id, cur.order_id, -cur.qty);
+      db.prepare(`UPDATE order_items SET status='cancelled', cancel_reason=?, cancelled_by=?, cancelled_at=datetime('now','localtime'), stock_deducted=0 WHERE id=?`)
+        .run(why.slice(0, 300), req.staff?.id ?? null, id);
+      const { subtotal } = orderTotals(cur.order_id);
+      db.prepare('UPDATE orders SET subtotal = ?, total = ? WHERE id = ?').run(subtotal, subtotal, cur.order_id);
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      return res.status(500).json({ error: e.message });
+    }
+    broadcast('orders', { id: cur.order_id });
+    broadcast('kitchen');
+    broadcast('inventory');
+    return res.json({ ok: true });
+  }
   const newQty = qty != null ? Number(qty) : cur.qty;
+  if (!(newQty > 0)) return res.status(400).json({ error: 'အရေအတွက် မမှန်ပါ' });
   db.exec('BEGIN');
   try {
     if (cur.stock_deducted && newQty !== cur.qty) applyRecipe(cur.item_id, cur.order_id, newQty - cur.qty);
@@ -874,6 +917,11 @@ app.delete('/api/order-items/:id', (req, res) => {
   const id = Number(req.params.id);
   const cur = db.prepare('SELECT * FROM order_items WHERE id = ?').get(id);
   if (!cur) return res.json({ ok: true });
+  const order = db.prepare('SELECT status FROM orders WHERE id = ?').get(cur.order_id);
+  if (!order || order.status !== 'open') return res.status(400).json({ error: 'Order မဖွင့်ထားပါ' });
+  if (cur.status === 'cooking' || cur.status === 'served') {
+    return res.status(400).json({ error: 'မီးဖိုပို့ပြီး ဟင်းကို အကြောင်းပြချက်ဖြင့် ပယ်ဖျက်ပါ' });
+  }
   db.exec('BEGIN');
   try {
     if (cur.stock_deducted) applyRecipe(cur.item_id, cur.order_id, -cur.qty);
@@ -919,6 +967,48 @@ app.post('/api/orders/:id/split', (req, res) => {
     db.exec('ROLLBACK');
     res.status(500).json({ error: 'ဘီလ်ခွဲ မအောင်မြင်ပါ: ' + e.message });
   }
+});
+
+app.post('/api/orders/:id/move', (req, res) => {
+  const id = Number(req.params.id);
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
+  if (!order || order.status !== 'open') return res.status(400).json({ error: 'Order မဖွင့်ထားပါ' });
+  const table = db.prepare('SELECT * FROM tables WHERE id = ?').get(Number(req.body.tableId));
+  if (!table) return res.status(400).json({ error: 'စားပွဲ မတွေ့ပါ' });
+  if (table.id === order.table_id) return res.json({ ok: true, table_id: table.id });
+  const conflict = db.prepare("SELECT id FROM orders WHERE table_id = ? AND status = 'open' AND id <> ?").get(table.id, id);
+  if (conflict) return res.status(400).json({ error: 'ရွေးထားသော စားပွဲတွင် အော်ဒါ ရှိနေပါသည်' });
+  db.prepare("UPDATE orders SET table_id = ?, type = 'dine_in' WHERE id = ?").run(table.id, id);
+  broadcast('orders', { id });
+  broadcast('tables');
+  res.json({ ok: true, table_id: table.id });
+});
+
+app.post('/api/orders/:id/merge', (req, res) => {
+  const id = Number(req.params.id);
+  const intoId = Number(req.body.intoId);
+  if (!intoId || intoId === id) return res.status(400).json({ error: 'ပေါင်းမည့် ဘီလ် ရွေးပါ' });
+  const source = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
+  const target = db.prepare('SELECT * FROM orders WHERE id = ?').get(intoId);
+  if (!source || !target) return res.status(404).json({ error: 'မတွေ့ပါ' });
+  if (source.status !== 'open' || target.status !== 'open') return res.status(400).json({ error: 'ဖွင့်ထားသော ဘီလ်များကိုသာ ပေါင်းနိုင်ပါသည်' });
+  db.exec('BEGIN');
+  try {
+    db.prepare('UPDATE order_items SET order_id = ? WHERE order_id = ?').run(intoId, id);
+    db.prepare('UPDATE orders SET customer_id = COALESCE(customer_id, ?), guests = guests + ? WHERE id = ?')
+      .run(source.customer_id, source.guests, intoId);
+    const { subtotal } = orderTotals(intoId);
+    db.prepare('UPDATE orders SET subtotal = ?, total = ? WHERE id = ?').run(subtotal, subtotal, intoId);
+    db.prepare("UPDATE orders SET status='void', subtotal=0, total=0, note=TRIM(COALESCE(note,'') || ?), closed_at=datetime('now','localtime') WHERE id=?")
+      .run(` (merged → #${target.order_no})`, id);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    return res.status(500).json({ error: 'ဘီလ်ပေါင်း မအောင်မြင်ပါ: ' + e.message });
+  }
+  broadcast('orders', { id: intoId });
+  broadcast('tables');
+  res.json({ ok: true, id: intoId, order_no: target.order_no });
 });
 
 function recipeShortages(rows) {
@@ -1004,7 +1094,7 @@ class HttpError extends Error {
 }
 
 /* Caller must wrap this in a transaction. */
-function payOrderTx(order, { discount = 0, customerId = null, promotionId = null, payments = [], staffId = null, paidAt = null } = {}) {
+function payOrderTx(order, { discount = 0, customerId = null, promotionId = null, payments = [], pointsUsed = 0, staffId = null, paidAt = null } = {}) {
   if (!order || order.status !== 'open') throw new HttpError(400, 'Order မဖွင့်ထားပါ');
   if (payments.some(p => Math.round(Number(p.amount) || 0) < 0)) throw new HttpError(400, 'ငွေပမာဏ မမှန်ပါ');
 
@@ -1016,12 +1106,27 @@ function payOrderTx(order, { discount = 0, customerId = null, promotionId = null
   const taxable = subtotal - disc;
   const tax = Math.round(taxable * taxRate / 100);
   const service = Math.round(taxable * serviceRate / 100);
-  const total = taxable + tax + service;
+  const baseTotal = taxable + tax + service;
+
+  const custId = customerId ? Number(customerId) : order.customer_id;
+  const pointValue = Math.max(0, Math.round(Number(settings.point_value ?? 1)));
+  let usedPoints = 0;
+  let pointsAmount = 0;
+  const requestedPoints = Math.max(0, Math.round(Number(pointsUsed) || 0));
+  if (requestedPoints > 0) {
+    if (!custId) throw new HttpError(400, 'အမှတ်သုံးရန် အဖွဲ့ဝင် ရွေးပါ');
+    if (pointValue <= 0) throw new HttpError(400, 'အမှတ် လဲလှယ်နှုန်း သတ်မှတ်ထားခြင်း မရှိပါ');
+    const cust = db.prepare('SELECT points FROM customers WHERE id = ?').get(custId);
+    if (!cust) throw new HttpError(400, 'အဖွဲ့ဝင် မတွေ့ပါ');
+    if (requestedPoints > cust.points) throw new HttpError(400, 'အမှတ် မလုံလောက်ပါ');
+    usedPoints = Math.min(requestedPoints, Math.floor(baseTotal / pointValue));
+    pointsAmount = usedPoints * pointValue;
+  }
+  const total = baseTotal - pointsAmount;
 
   const paid = payments.reduce((s, p) => s + Math.round(Number(p.amount) || 0), 0);
   if (paid < total) throw new HttpError(400, `ငွေမလုံလောက်ပါ (လိုသေးသည် ${total - paid} ကျပ်)`);
   const creditAmount = payments.filter(p => p.method === 'credit').reduce((s, p) => s + Math.round(Number(p.amount) || 0), 0);
-  const custId = customerId ? Number(customerId) : order.customer_id;
   if (creditAmount > 0 && !custId) throw new HttpError(400, 'အကြွေးအတွက် အဖွဲ့ဝင် ရွေးချယ်ပါ');
 
   const insPay = db.prepare(`INSERT INTO payments (order_id, method, amount, ref, staff_id, paid_at)
@@ -1029,23 +1134,29 @@ function payOrderTx(order, { discount = 0, customerId = null, promotionId = null
   for (const p of payments) {
     insPay.run(order.id, p.method || 'cash', Math.round(Number(p.amount) || 0), p.ref || '', staffId, paidAt);
   }
-  db.prepare(`UPDATE orders SET status='paid', subtotal=?, discount=?, tax=?, service=?, total=?, customer_id=COALESCE(?, customer_id), promotion_id=?, closed_at=COALESCE(?, datetime('now','localtime')) WHERE id=?`)
-    .run(subtotal, disc, tax, service, total, customerId ? Number(customerId) : null, promotionId ? Number(promotionId) : null, paidAt, order.id);
+  db.prepare(`UPDATE orders SET status='paid', subtotal=?, discount=?, tax=?, service=?, total=?, customer_id=COALESCE(?, customer_id), promotion_id=?, points_used=?, points_amount=?, closed_at=COALESCE(?, datetime('now','localtime')) WHERE id=?`)
+    .run(subtotal, disc, tax, service, total, customerId ? Number(customerId) : null, promotionId ? Number(promotionId) : null, usedPoints, pointsAmount, paidAt, order.id);
   if (creditAmount > 0) {
     db.prepare('INSERT INTO credits (customer_id, order_id, amount, note) VALUES (?, ?, ?, ?)')
       .run(custId, order.id, creditAmount, `Order ${order.order_no}`);
   }
   const ptsPer1000 = Number(settings.points_per_1000 || 0);
-  if (custId && ptsPer1000 > 0) {
-    db.prepare('UPDATE customers SET points = points + ? WHERE id = ?').run(Math.floor(total / 1000) * ptsPer1000, custId);
+  if (custId) {
+    const earned = ptsPer1000 > 0 ? Math.floor(total / 1000) * ptsPer1000 : 0;
+    if (earned || usedPoints) {
+      db.prepare('UPDATE customers SET points = points - ? + ? WHERE id = ?').run(usedPoints, earned, custId);
+    }
   }
-  return { subtotal, discount: disc, tax, service, total };
+  return { subtotal, discount: disc, tax, service, total, pointsUsed: usedPoints, pointsAmount };
 }
 
 app.post('/api/orders/:id/pay', (req, res) => {
   const id = Number(req.params.id);
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
   if (!order || order.status !== 'open') return res.status(400).json({ error: 'Order မဖွင့်ထားပါ' });
+  if (!db.prepare('SELECT id FROM shifts WHERE closed_at IS NULL LIMIT 1').get()) {
+    return res.status(400).json({ error: 'ဆိုင်မဖွင့်ရသေးပါ — ငွေရှင်းမီ ဆိုင်ဖွင့်ပါ' });
+  }
   const payments = Array.isArray(req.body.payments) ? req.body.payments : [];
 
   db.exec('BEGIN');
@@ -1054,13 +1165,14 @@ app.post('/api/orders/:id/pay', (req, res) => {
       discount: req.body.discount,
       customerId: req.body.customerId,
       promotionId: req.body.promotionId,
+      pointsUsed: req.body.pointsUsed,
       payments,
       staffId: req.staff.id
     });
     db.exec('COMMIT');
     broadcast('orders', { id });
     broadcast('tables');
-    res.json({ ok: true, total: result.total, subtotal: result.subtotal, discount: result.discount, tax: result.tax, service: result.service });
+    res.json({ ok: true, total: result.total, subtotal: result.subtotal, discount: result.discount, tax: result.tax, service: result.service, pointsUsed: result.pointsUsed, pointsAmount: result.pointsAmount });
   } catch (e) {
     db.exec('ROLLBACK');
     res.status(e.status || 500).json({ error: e.status ? e.message : 'ငွေရှင်း မအောင်မြင်ပါ: ' + e.message });
@@ -1187,7 +1299,7 @@ app.get('/api/kitchen', (req, res) => {
            COALESCE(m.is_alcohol, 0) AS is_alcohol, COALESCE(m.station, 'kitchen') AS station,
            o.order_no, o.type, t.name AS table_name
     FROM order_items i
-    JOIN orders o ON o.id = i.order_id AND o.status = 'open'
+    JOIN orders o ON o.id = i.order_id AND o.status IN ('open','paid')
     LEFT JOIN tables t ON t.id = o.table_id
     LEFT JOIN menu_items m ON m.id = i.item_id
     WHERE i.status = 'cooking' AND COALESCE(m.station, 'kitchen') = ?
@@ -1233,6 +1345,8 @@ app.get('/api/reports/summary', (req, res) => {
   `).get(...ids).cost : 0;
   const netSales = orders.reduce((s, o) => s + o.subtotal - o.discount, 0);
   const profit = netSales - cost;
+  const netProfit = profit - expenses;
+  const creditPaid = db.prepare("SELECT COALESCE(SUM(amount),0) AS amount FROM credit_payments WHERE date(paid_at)=?").get(date).amount;
   const alcohol = ids.length ? db.prepare(`
     SELECT COALESCE(SUM(oi.price * oi.qty), 0) AS amount, COALESCE(SUM(oi.qty), 0) AS qty
     FROM order_items oi JOIN menu_items m ON m.id = oi.item_id
@@ -1254,7 +1368,8 @@ app.get('/api/reports/summary', (req, res) => {
   res.json({
     date, orderCount: orders.length, total, discount, tax, service, expenses, creditOutstanding,
     netSales, cost, profit, margin: netSales ? Math.round(profit / netSales * 100) : 0,
-    netProfit: profit - expenses, expenseByCategory,
+    netProfit, netMargin: netSales ? Math.round(netProfit / netSales * 100) : 0,
+    creditPaid, expenseByCategory,
     avg: orders.length ? Math.round(total / orders.length) : 0,
     byMethod, topItems, byHour, openCount, onlineOrderCount,
     alcoholSales: alcohol.amount, alcoholQty: alcohol.qty,
@@ -1312,7 +1427,7 @@ app.post('/api/inventory', (req, res) => {
   const { name, unit, qty, reorder_level, cost } = req.body;
   if (!name) return res.status(400).json({ error: 'အမည် ထည့်ပါ' });
   const r = db.prepare('INSERT INTO inventory_items (name, unit, qty, reorder_level, cost) VALUES (?, ?, ?, ?, ?)')
-    .run(name, unit || '', Number(qty) || 0, Number(reorder_level) || 0, Math.round(Number(cost) || 0));
+    .run(name, unit || '', roundQty(qty), Number(reorder_level) || 0, Math.round(Number(cost) || 0));
   broadcast('inventory');
   res.json({ id: r.lastInsertRowid });
 });
@@ -1322,11 +1437,11 @@ app.post('/api/inventory/:id/move', (req, res) => {
   const { type, qty, note = '' } = req.body;
   const item = db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(id);
   if (!item) return res.status(404).json({ error: 'မတွေ့ပါ' });
-  const q = Number(qty) || 0;
+  const q = roundQty(qty);
   const delta = type === 'in' ? q : type === 'out' ? -q : q;
   db.exec('BEGIN');
   try {
-    db.prepare('UPDATE inventory_items SET qty = qty + ? WHERE id = ?').run(delta, id);
+    db.prepare('UPDATE inventory_items SET qty = ROUND(qty + ?, 3) WHERE id = ?').run(delta, id);
     db.prepare('INSERT INTO stock_moves (item_id, type, qty, note, staff_id) VALUES (?, ?, ?, ?, ?)')
       .run(id, type || 'adjust', q, note, req.staff.id);
     db.exec('COMMIT');
@@ -1344,7 +1459,7 @@ app.patch('/api/inventory/:id', (req, res) => {
     .run(
       b.name ?? cur.name,
       b.unit ?? cur.unit,
-      Number(b.qty ?? cur.qty) || 0,
+      roundQty(b.qty ?? cur.qty),
       Number(b.reorder_level ?? cur.reorder_level) || 0,
       Math.round(Number(b.cost ?? cur.cost) || 0),
       b.sku ?? cur.sku ?? '',
@@ -1396,11 +1511,11 @@ app.post('/api/inventory/bulk-delete', (req, res) => {
 app.post('/api/inventory/bulk-move', (req, res) => {
   const { ids, type, qty, note = '' } = req.body || {};
   if (!Array.isArray(ids) || !ids.length || !qty) return res.status(400).json({ error: 'အချက်အလက် မပြည့်စုံပါ' });
-  const q = Number(qty) || 0;
+  const q = roundQty(qty);
   const delta = type === 'in' ? q : type === 'out' ? -q : q;
   db.exec('BEGIN');
   try {
-    const updateQty = db.prepare('UPDATE inventory_items SET qty = MAX(0, qty + ?) WHERE id = ?');
+    const updateQty = db.prepare('UPDATE inventory_items SET qty = MAX(0, ROUND(qty + ?, 3)) WHERE id = ?');
     const recordMove = db.prepare('INSERT INTO stock_moves (item_id, type, qty, note, staff_id) VALUES (?, ?, ?, ?, ?)');
     for (const id of ids) {
       updateQty.run(delta, Number(id));
@@ -1432,7 +1547,7 @@ app.post('/api/inventory/bulk-import', (req, res) => {
       if (!it.name) continue;
       const existing = findInv.get(String(it.name).trim());
       const unit = it.unit || 'ကီလို';
-      const qty = Number(it.qty) || 0;
+      const qty = roundQty(it.qty);
       const reorder_level = Number(it.reorder_level) || 0;
       const cost = Math.round(Number(it.cost) || 0);
       const sku = it.sku || '';
@@ -1680,9 +1795,20 @@ function shiftSummary(shift) {
     SELECT COALESCE(SUM(amount), 0) AS amount FROM expenses
     WHERE method = 'cash' AND created_at >= ? ${shift.closed_at ? 'AND created_at <= ?' : ''}
   `).get(...expArgs).amount;
-  const expectedCash = shift.opening_cash + cash - expenseCash;
+  const creditArgs = [shift.opened_at];
+  if (shift.closed_at) creditArgs.push(shift.closed_at);
+  const creditByMethod = db.prepare(`
+    SELECT cp.method, COALESCE(m.name, cp.method) AS method_name, SUM(cp.amount) AS amount, COUNT(*) AS count
+    FROM credit_payments cp LEFT JOIN payment_methods m ON m.code = cp.method
+    WHERE cp.paid_at >= ? ${shift.closed_at ? 'AND cp.paid_at <= ?' : ''}
+    GROUP BY cp.method, m.name ORDER BY amount DESC
+  `).all(...creditArgs);
+  const creditCash = creditByMethod.find(m => m.method === 'cash')?.amount || 0;
+  const creditTotal = creditByMethod.reduce((s, m) => s + m.amount, 0);
+  const expectedCash = shift.opening_cash + cash + creditCash - expenseCash;
   return {
-    shift, byMethod, cash, expenseCash, orderCount: orders.c, sales: orders.total,
+    shift, byMethod, cash, expenseCash, creditByMethod, creditCash, creditTotal,
+    orderCount: orders.c, sales: orders.total,
     expectedCash,
     difference: shift.closing_cash != null ? shift.closing_cash - expectedCash : null
   };
@@ -1694,6 +1820,15 @@ function currentShift() {
 }
 
 app.get('/api/shifts/current', (req, res) => res.json(currentShift()));
+
+app.get('/api/shifts', (req, res) => {
+  const rows = db.prepare(`
+    SELECT s.*, st.name AS staff_name FROM shifts s
+    LEFT JOIN staff st ON st.id = s.staff_id
+    ORDER BY s.id DESC LIMIT 30
+  `).all();
+  res.json(rows.map(s => ({ ...shiftSummary(s), staff_name: s.staff_name })));
+});
 
 app.post('/api/shifts/open', (req, res) => {
   const open = db.prepare('SELECT id FROM shifts WHERE closed_at IS NULL LIMIT 1').get();
@@ -1782,6 +1917,7 @@ function buildReceiptText(orderId) {
   if (o.discount) rows.push(lineText('Discount', '-' + moneyText(o.discount)));
   if (o.tax) rows.push(lineText('Tax', moneyText(o.tax)));
   if (o.service) rows.push(lineText('Service', moneyText(o.service)));
+  if (o.points_amount) rows.push(lineText(`Points (${o.points_used})`, '-' + moneyText(o.points_amount)));
   rows.push(lineText('TOTAL', moneyText(o.total)));
   const methods = o.payments.map(p => `${p.method_name || p.method}: ${moneyText(p.amount)}`).join('  ');
   if (methods) rows.push(methods);

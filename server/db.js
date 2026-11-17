@@ -194,6 +194,16 @@ CREATE TABLE IF NOT EXISTS credits (
   settled_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS credit_payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  credit_id INTEGER NOT NULL,
+  amount INTEGER NOT NULL,
+  method TEXT NOT NULL DEFAULT 'cash',
+  staff_id INTEGER,
+  paid_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  FOREIGN KEY (credit_id) REFERENCES credits(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS recipe_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   menu_item_id INTEGER NOT NULL,
@@ -221,6 +231,7 @@ CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id);
 CREATE INDEX IF NOT EXISTS idx_payments_paid ON payments(paid_at);
 CREATE INDEX IF NOT EXISTS idx_reservations_at ON reservations(reserved_at);
 CREATE INDEX IF NOT EXISTS idx_credits_customer ON credits(customer_id);
+CREATE INDEX IF NOT EXISTS idx_credit_payments_paid ON credit_payments(paid_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_staff ON sessions(staff_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_item ON order_items(item_id);
 CREATE INDEX IF NOT EXISTS idx_orders_table ON orders(table_id);
@@ -250,7 +261,12 @@ function ensureColumn(table, col, def) {
   if (!cols.some(c => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
 }
 ensureColumn('order_items', 'stock_deducted', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('order_items', 'cancel_reason', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('order_items', 'cancelled_by', 'INTEGER');
+ensureColumn('order_items', 'cancelled_at', 'TEXT');
 ensureColumn('orders', 'promotion_id', 'INTEGER');
+ensureColumn('orders', 'points_used', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('orders', 'points_amount', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('orders', 'customer_name', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('orders', 'customer_phone', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('orders', 'source', "TEXT NOT NULL DEFAULT 'pos'");
@@ -299,7 +315,7 @@ const count = (table) => db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get().
 export function seed() {
   const defaults = {
     shop_name: 'စည်တော်ကြီး စားသောက်ဆိုင်',
-    shop_name_en: 'Sintawgyi Restaurant',
+    shop_name_en: 'Si Daw Gyi Restaurant',
     address: 'မြို့မဈေး၊ နယ်မြို့',
     phone: '09-000000000',
     currency: 'MMK',
@@ -308,6 +324,7 @@ export function seed() {
     footer: 'ကျေးဇူးတင်ပါတယ်။ နောက်တစ်ကြိမ် ကြိုဆိုပါတယ်။',
     receipt_printer_width: '80',
     points_per_1000: '1',
+    point_value: '1',
     printer_mode: 'browser',
     printer_host: '',
     printer_port: '9100',
@@ -321,6 +338,9 @@ export function seed() {
     .run('စည်တော်ကြီး စားသောက်ဆိုင်', 'ရွှေမြို့ စားသောက်ဆိုင်');
   db.prepare("UPDATE settings SET value = ? WHERE key = 'shop_name_en' AND value = ?")
     .run('Sintawgyi Restaurant', 'Shwe Myo Restaurant');
+  // migrate old English spelling to the current brand name
+  db.prepare("UPDATE settings SET value = ? WHERE key = 'shop_name_en' AND value = ?")
+    .run('Si Daw Gyi Restaurant', 'Sintawgyi Restaurant');
 
   if (count('staff') === 0) {
     const ins = db.prepare('INSERT INTO staff (name, pin, role) VALUES (?, ?, ?)');
@@ -485,6 +505,50 @@ function seedAlcoholMenu() {
 }
 seedAlcoholMenu();
 
+/* One-time backfill of seeded menu photos (keeps later manual clears). */
+function seedMenuImages() {
+  if (db.prepare("SELECT 1 FROM settings WHERE key = 'menu_images_seeded'").get()) return;
+  const images = {
+    'ကြက်သားထမင်းကြော်': 'chicken_fried_rice',
+    'ဝက်သားထမင်းကြော်': 'pork_fried_rice',
+    'ငါးကြင်းထမင်းကြော်': 'fish_fried_rice',
+    'ကြက်သားဟင်းထမင်း': 'chicken_curry_rice',
+    'ဝက်သားဟင်းထမင်း': 'pork_curry_rice',
+    'မုန့်ဟင်းခါး': 'mohinga',
+    'ခေါက်ဆွဲကြော်': 'fried_noodles',
+    'ရှမ်းခေါက်ဆွဲ': 'shan_noodles',
+    'မုန့်တီ': 'mont_di',
+    'ကြက်သားကင်': 'grilled_chicken',
+    'ဝက်သားကင်': 'grilled_pork',
+    'ငါးကြော်ခြောက်': 'fried_dried_fish',
+    'ကြက်သားကြော်': 'fried_chicken',
+    'ပဲပြုတ်': 'boiled_peas',
+    'ချဉ်ပေါင်ရွက်ကြော်': 'roselle_stirfry',
+    'ကြက်ဥပြုတ်': 'boiled_eggs',
+    'ရေသန့်ဘူး': 'purified_water',
+    'ကိုကာကိုလာ': 'cola',
+    'လိမ္မော်ရည်': 'orange_juice',
+    'ဖျော်ရည်': 'fruit_shake',
+    'လဖက်ရည်': 'milk_tea',
+    'ကော်ဖီ': 'coffee',
+    'နို့လဖက်ရည်': 'milk_tea_iced',
+    'မြန်မာဘီယာ (ဘူး)': 'beer_bottle',
+    'တိုက်ဂါဘီယာ (ဘူး)': 'beer_bottle',
+    'ဟိုင်းနီကန်ဘီယာ (ဘူး)': 'beer_bottle',
+    'ဒရပ်ဘီယာ (ခွက်)': 'draft_beer_glass',
+    'ဒရပ်ဘီယာ (ကရား)': 'draft_beer_mug',
+    'ဝီစကီ (ဘူး)': 'whisky_bottle',
+    'ဝီစကီ (ခွက်)': 'whisky_glass',
+    'ရမ် (ဘူး)': 'whisky_bottle',
+    'ရမ် (ခွက်)': 'whisky_glass',
+    'ဂျင်း (ခွက်)': 'gin_glass'
+  };
+  const upd = db.prepare("UPDATE menu_items SET image = ? WHERE name = ? AND (image IS NULL OR TRIM(image) = '')");
+  for (const [name, slug] of Object.entries(images)) upd.run(`/menu/${slug}.webp`, name);
+  db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('menu_images_seeded', '1')").run();
+}
+seedMenuImages();
+
 /* Hash legacy plaintext PINs and drop expired sessions. */
 function migrateStaffPins() {
   const rows = db.prepare('SELECT id, pin FROM staff').all();
@@ -531,7 +595,11 @@ export function orderTotals(orderId) {
 }
 
 export function orderWithItems(orderId) {
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  const order = db.prepare(`
+    SELECT o.*, cu.name AS member_name, cu.phone AS member_phone
+    FROM orders o LEFT JOIN customers cu ON cu.id = o.customer_id
+    WHERE o.id = ?
+  `).get(orderId);
   if (!order) return null;
   const items = db.prepare(`
     SELECT oi.*, COALESCE(m.is_alcohol, 0) AS is_alcohol, COALESCE(m.station, 'kitchen') AS station

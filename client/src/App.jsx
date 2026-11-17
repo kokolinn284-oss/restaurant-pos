@@ -17,7 +17,7 @@ import DailySales from './screens/DailySales.jsx';
 import Settings from './screens/Settings.jsx';
 import CustomerCatalog from './screens/CustomerCatalog.jsx';
 import CalculatorModal from './components/CalculatorModal.jsx';
-import { Icon, ThemeToggle, LangToggle, Modal, Empty } from './components/ui.jsx';
+import { Icon, ThemeToggle, LangToggle, Modal, Field, Empty } from './components/ui.jsx';
 import {
   getDrafts, subscribeDrafts, pendingCount, syncDrafts, cacheBootstrap, getCachedBootstrap, removeDraft
 } from './offline.js';
@@ -73,10 +73,16 @@ export default function App() {
   const [drafts, setDrafts] = useState(() => getDrafts());
   const [syncing, setSyncing] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [shiftOpen, setShiftOpen] = useState(false);
+  const [shiftCash, setShiftCash] = useState('');
+  const [shiftBusy, setShiftBusy] = useState(false);
   const [now, setNow] = useState(() => new Date());
+  const [navHidden, setNavHidden] = useState(false);
   const toastTimer = useRef(null);
   const syncBusy = useRef(false);
   const lastAutoSync = useRef(0);
+  const shiftPrompted = useRef(false);
+  const navHideTimer = useRef(null);
   const tRef = useRef(t);
 
   const showToast = useCallback((msg) => {
@@ -93,6 +99,8 @@ export default function App() {
     setOrderId(null);
     setNavOpen(false);
     setUserOpen(false);
+    shiftPrompted.current = false;
+    setShiftOpen(false);
   }, []);
 
   useEffect(() => { setAuth(session); }, [session]);
@@ -110,6 +118,39 @@ export default function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [navOpen, userOpen]);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 980px)');
+    let last = window.scrollY;
+    const reveal = () => {
+      clearTimeout(navHideTimer.current);
+      setNavHidden(false);
+    };
+    const onScroll = () => {
+      if (!mq.matches) { reveal(); return; }
+      const y = window.scrollY;
+      const dy = y - last;
+      last = y;
+      clearTimeout(navHideTimer.current);
+      if (y < 24) { setNavHidden(false); return; }
+      if (dy > 6) setNavHidden(true);
+      else if (dy < -6) setNavHidden(false);
+      navHideTimer.current = setTimeout(() => setNavHidden(false), 520);
+    };
+    const onResize = () => { if (!mq.matches) reveal(); };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onResize);
+      clearTimeout(navHideTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    clearTimeout(navHideTimer.current);
+    setNavHidden(false);
+  }, [view, orderId]);
 
   const reload = useCallback(async () => {
     try {
@@ -190,10 +231,32 @@ export default function App() {
     return () => { alive = false; clearInterval(timer); if (es) es.close(); };
   }, [staff, reload]);
 
-  useEffect(() => { if (data) document.title = `${data.settings.shop_name} · POS`; }, [data]);
+  useEffect(() => {
+    if (!staff || !data) return;
+    if (staff.role === 'waiter' || data.shift || shiftPrompted.current) return;
+    shiftPrompted.current = true;
+    setShiftCash('');
+    setShiftOpen(true);
+  }, [staff, data]);
+
+  const submitOpenShift = async () => {
+    if (shiftBusy) return;
+    setShiftBusy(true);
+    try {
+      await api('/shifts/open', { method: 'POST', body: JSON.stringify({ opening_cash: Math.max(0, Number(shiftCash) || 0) }) });
+      setShiftOpen(false);
+      await reload();
+      showToast(t('ဆိုင်ဖွင့်ပြီးပါပြီ'));
+    } catch (e) {
+      showToast(e.message);
+    } finally {
+      setShiftBusy(false);
+    }
+  };
 
   const login = (sessionData) => {
     localStorage.setItem('pos_auth', JSON.stringify(sessionData));
+    shiftPrompted.current = false;
     setSession(sessionData);
   };
 
@@ -222,8 +285,14 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
+  useEffect(() => {
+    if (!data) return;
+    if (route === 'catalog' || view === 'catalog') return;
+    document.title = `${data.settings.shop_name} · POS`;
+  }, [data, route, view]);
+
   if (route === 'catalog') {
-    return <CustomerCatalog onBackToPos={staff ? () => { window.location.hash = ''; setRoute(''); } : null} />;
+    return <CustomerCatalog />;
   }
 
   if (!staff) return <Login onLogin={login} />;
@@ -243,8 +312,8 @@ export default function App() {
 
   const settings = data?.settings || {};
   const navItems = NAV.filter(n => (ROLE_NAV[staff.role] || ROLE_NAV.cashier).includes(n.key));
-  const shopName = isEn ? (settings.shop_name_en || 'Sintawgyi Restaurant') : (settings.shop_name || 'စည်တော်ကြီး စားသောက်ဆိုင်');
-  const shopSub = isEn ? (settings.shop_name || 'စည်တော်ကြီး စားသောက်ဆိုင်') : (settings.shop_name_en || 'Sintawgyi Restaurant');
+  const shopName = isEn ? (settings.shop_name_en || 'Si Daw Gyi Restaurant') : (settings.shop_name || 'စည်တော်ကြီး စားသောက်ဆိုင်');
+  const shopSub = isEn ? (settings.shop_name || 'စည်တော်ကြီး စားသောက်ဆိုင်') : (settings.shop_name_en || 'Si Daw Gyi Restaurant');
   const pageNav = view === 'order' ? NAV[0] : ([...NAV, ...SETTINGS_LINKS].find(n => n.key === view) || NAV[0]);
   const inSettings = SETTINGS_LINKS.some(s => s.key === view);
   const roleLabel = t(ROLE_KEY[staff.role] || 'ကောင်တာ');
@@ -312,7 +381,7 @@ export default function App() {
 
       <aside className={`sidebar ${navOpen ? 'open' : ''}`}>
         <div className="brand">
-          <div className="brand-mark">စည်</div>
+          <img className="brand-mark" src="/icon.svg" alt="" width="40" height="40" />
           <div className="brand-text">
             <div className="brand-name">{shopName}</div>
             <div className="brand-sub">{shopSub}</div>
@@ -411,57 +480,65 @@ export default function App() {
                   <span className="sep">·</span>
                   <b>{timeText}</b>
                 </span>
-                <span className="role-chip">{roleLabel} · {staff.name}</span>
+                <span className="role-chip" title={`${staff.name} · ${roleLabel}`}>
+                  <span className={`rc-dot ${staff.role}`} aria-hidden="true" />
+                  {roleLabel}
+                </span>
               </div>
             </div>
           </div>
           <div className="topbar-right">
-            {drafts.length > 0 && (
-              <button className={`sync-pill ${pendingSync > 0 ? 'has-pending' : ''}`} onClick={() => setSyncOpen(true)}
-                title={t('အော့ဖ်လိုင်း အော်ဒါများ')}>
-                <Icon name="wifi" size={14} />
-                <span className="txt">
-                  {pendingSync > 0 ? `${pendingSync} ${t('sync စောင့်')}` : `${localOpen} ${t('local အော်ဒါ')}`}
-                </span>
-              </button>
-            )}
-            <button
-              className="icon-btn calc-launch-btn"
-              onClick={() => setCalcOpen(true)}
-              title={t('ဂဏန်းတွက်စက်')}
-              aria-label={t('ဂဏန်းတွက်စက်')}
-            >
-              <Icon name="calculator" size={17} />
-              <span className="calc-pill-txt desktop-only">{t('တွက်ချက်')}</span>
-            </button>
-            <span className={`conn ${online ? '' : 'offline'}`} title={online ? t('ချိတ်ဆက်ထားသည်') : t('ချိတ်ဆက်မှု ပြတ်နေသည်')}>
-              <Icon name="wifi" size={15} />
-              <span className="txt">{online ? t('ချိတ်ဆက်ထားသည်') : t('ချိတ်ဆက်မှု ပြတ်နေသည်')}</span>
-            </span>
-            <LangToggle />
-            <ThemeToggle className="tone-gold" />
-            <div className="user-menu">
-              <button className="avatar-tile" onClick={() => setUserOpen(v => !v)}
-                aria-haspopup="menu" aria-expanded={userOpen} title={staff.name}>
-                {(staff.name || '?').slice(0, 1)}
-              </button>
-              {userOpen && (
-                <>
-                  <div className="user-scrim" onClick={() => setUserOpen(false)} />
-                  <div className="user-pop" role="menu">
-                    <div className="up-head">
-                      <div className="avatar">{(staff.name || '?').slice(0, 1)}</div>
-                      <div className="profile-text">
-                        <strong>{staff.name}</strong>
-                        <span>{roleLabel}</span>
-                      </div>
-                    </div>
-                    <button className="up-item danger" role="menuitem" onClick={logout}>
-                      <Icon name="logout" size={16} /> {t('အကောင့် ထွက်')}
-                    </button>
-                  </div>
-                </>
+            <div className="tb-status">
+              {drafts.length > 0 && (
+                <button className={`sync-pill ${pendingSync > 0 ? 'has-pending' : ''}`} onClick={() => setSyncOpen(true)}
+                  title={t('အော့ဖ်လိုင်း အော်ဒါများ')}>
+                  <Icon name="wifi" size={14} />
+                  <span className="txt">
+                    {pendingSync > 0 ? `${pendingSync} ${t('sync စောင့်')}` : `${localOpen} ${t('local အော်ဒါ')}`}
+                  </span>
+                </button>
               )}
+              <span className={`conn ${online ? '' : 'offline'}`} title={online ? t('ချိတ်ဆက်ထားသည်') : t('ချိတ်ဆက်မှု ပြတ်နေသည်')}>
+                <Icon name="wifi" size={15} />
+                <span className="txt">{online ? t('ချိတ်ဆက်ထားသည်') : t('ချိတ်ဆက်မှု ပြတ်နေသည်')}</span>
+              </span>
+            </div>
+            <span className="tb-sep" aria-hidden="true" />
+            <div className="tb-actions">
+              <button
+                className="icon-btn calc-launch-btn"
+                onClick={() => setCalcOpen(true)}
+                title={t('ဂဏန်းတွက်စက်')}
+                aria-label={t('ဂဏန်းတွက်စက်')}
+              >
+                <Icon name="calculator" size={17} />
+                <span className="calc-pill-txt desktop-only">{t('တွက်ချက်')}</span>
+              </button>
+              <LangToggle />
+              <ThemeToggle className="tone-gold" />
+              <div className="user-menu">
+                <button className="avatar-tile" onClick={() => setUserOpen(v => !v)}
+                  aria-haspopup="menu" aria-expanded={userOpen} title={staff.name}>
+                  {(staff.name || '?').slice(0, 1)}
+                </button>
+                {userOpen && (
+                  <>
+                    <div className="user-scrim" onClick={() => setUserOpen(false)} />
+                    <div className="user-pop" role="menu">
+                      <div className="up-head">
+                        <div className="avatar">{(staff.name || '?').slice(0, 1)}</div>
+                        <div className="profile-text">
+                          <strong>{staff.name}</strong>
+                          <span>{roleLabel}</span>
+                        </div>
+                      </div>
+                      <button className="up-item danger" role="menuitem" onClick={logout}>
+                        <Icon name="logout" size={16} /> {t('အကောင့် ထွက်')}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </header>
@@ -483,28 +560,47 @@ export default function App() {
           </div>
         )}
 
+        {data && !data.shift && staff.role !== 'waiter' && (
+          <div className="offline-bar shift" role="status">
+            <span className="ob-dot" />
+            <span className="ob-text">{t('ဆိုင်မဖွင့်ရသေးပါ — ငွေရှင်းမီ ဆိုင်ဖွင့်ပါ')}</span>
+            <button className="ob-btn" onClick={() => { setShiftCash(''); setShiftOpen(true); }}>{t('ဆိုင်ဖွင့်မည်')}</button>
+          </div>
+        )}
+
         <main className="content">
           <div className="view-anim" key={`${view}-${orderId || ''}`}>{renderView()}</div>
         </main>
       </div>
 
-      <nav className="bottom-nav">
-        {navItems.filter(n => (staff.role === 'owner' ? ['tables', 'dashboard', 'reports', 'kitchen'] : staff.role === 'waiter' ? ['tables', 'kitchen'] : ['tables', 'dashboard', 'kitchen', 'menu']).includes(n.key)).map(n => (
+      <nav className={`bottom-nav ${navHidden ? 'nav-hidden' : ''}`}>
+        {navItems.filter(n => (staff.role === 'owner' ? ['tables', 'dashboard', 'kitchen', 'expenses'] : staff.role === 'waiter' ? ['tables', 'kitchen'] : ['tables', 'dashboard', 'kitchen', 'menu']).includes(n.key)).map(n => (
           <button key={n.key} data-bn={n.key}
-            className={`bn-item ${view === n.key || (n.key === 'tables' && view === 'order') ? 'active' : ''}`}
+            className={`bn-item t-${n.tone} ${view === n.key || (n.key === 'tables' && view === 'order') ? 'active' : ''}`}
             onClick={() => goto(n.key)}>
             <span className="bi"><Icon name={n.icon} size={20} /></span>
             <span>{t(n.short)}</span>
             {badge(n.key) > 0 && <span className="nav-count">{badge(n.key)}</span>}
           </button>
         ))}
-        <button data-bn="more" className={`bn-item ${navOpen || !(staff.role === 'owner' ? ['tables', 'dashboard', 'reports', 'kitchen', 'order'] : staff.role === 'waiter' ? ['tables', 'kitchen', 'order'] : ['tables', 'dashboard', 'kitchen', 'menu', 'order']).includes(view) ? 'active' : ''}`} onClick={() => setNavOpen(true)}>
+        <button data-bn="more" className={`bn-item t-slate ${navOpen || !(staff.role === 'owner' ? ['tables', 'dashboard', 'kitchen', 'expenses', 'order'] : staff.role === 'waiter' ? ['tables', 'kitchen', 'order'] : ['tables', 'dashboard', 'kitchen', 'menu', 'order']).includes(view) ? 'active' : ''}`} onClick={() => setNavOpen(true)}>
           <span className="bi"><Icon name="more" size={20} /></span>
           <span>{t('ပိုမို')}</span>
         </button>
       </nav>
 
       {calcOpen && <CalculatorModal isOpen={calcOpen} onClose={() => setCalcOpen(false)} />}
+      {shiftOpen && (
+        <Modal title={t('ဆိုင် ဖွင့်')} onClose={() => setShiftOpen(false)} footer={<>
+          <button className="btn ghost" onClick={() => setShiftOpen(false)}>{t('မလုပ်တော့')}</button>
+          <button className="btn" disabled={shiftBusy} onClick={submitOpenShift}>{t('ဖွင့်မည်')}</button>
+        </>}>
+          <p className="hint mt-0">{t('ဆိုင်မဖွင့်ရသေးပါ — ငွေရှင်းမီ ဆိုင်ဖွင့်ပါ')}</p>
+          <Field label={t('အစ လက်ကျန်ငွေ')}>
+            <input type="number" min="0" value={shiftCash} onChange={e => setShiftCash(e.target.value)} placeholder="0" autoFocus />
+          </Field>
+        </Modal>
+      )}
       {syncOpen && (
         <SyncPanel drafts={drafts} online={online} syncing={syncing}
           onSync={runSync} onClose={() => setSyncOpen(false)}

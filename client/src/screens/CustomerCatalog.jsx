@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { getFoodImage } from '../foodPresets.js';
 import { Icon, ThemeToggle, LangToggle, ModalFrame, stationLabel } from '../components/ui.jsx';
+import { AlinnThitCredit } from '../components/AlinnThitPromo.jsx';
 import { useI18n } from '../i18n.jsx';
 
 const QUICK_NOTES = [
@@ -223,6 +224,12 @@ export default function CustomerCatalog({ onBackToPos = null }) {
     if (myOrdersOpen) refreshMyOrders();
   }, [myOrdersOpen]);
 
+  useEffect(() => {
+    if (!shop.name) return;
+    const title = isEn ? (shop.name_en || shop.name) : (shop.name || shop.name_en);
+    document.title = `${title} · ${isEn ? 'Menu' : 'မီနူး'}`;
+  }, [shop, isEn]);
+
   // Category map
   const catMap = useMemo(() => {
     const map = new Map();
@@ -257,6 +264,14 @@ export default function CustomerCatalog({ onBackToPos = null }) {
   const traySubtotal = useMemo(() => tray.reduce((s, it) => s + (it.price * it.qty), 0), [tray]);
 
   const addToTray = (item, qty = 1, note = '') => {
+    if (item.is_alcohol && sessionStorage.getItem('customer_age_ok') !== '1') {
+      const ok = window.confirm(L(
+        'အရက်ပါဝင်သော ပစ္စည်းများကို အသက် ၁၈ နှစ်ပြည့်ပြီးသူများသာ ဝယ်ယူနိုင်ပါသည်။ ဆက်လုပ်မည်လား?',
+        'Alcoholic items are for customers aged 18 and over. Continue?'
+      ));
+      if (!ok) return;
+      sessionStorage.setItem('customer_age_ok', '1');
+    }
     setTray(prev => {
       const existingIdx = prev.findIndex(t => t.id === item.id && (t.note || '') === note);
       if (existingIdx >= 0) {
@@ -402,14 +417,14 @@ export default function CustomerCatalog({ onBackToPos = null }) {
 
   const selectedTableObj = tables.find(t => String(t.id) === String(selectedTableId));
   const shopTitle = isEn
-    ? (shop.name_en || shop.name || 'Sintawgyi Restaurant')
+    ? (shop.name_en || shop.name || 'Si Daw Gyi Restaurant')
     : (shop.name || 'စည်တော်ကြီး စားသောက်ဆိုင်');
   const shopSub = isEn ? (shop.name || '') : (shop.name_en || '');
 
   if (loading) {
     return (
       <div className="catalog-loading-screen">
-        <div className="catalog-loading-logo">စည်</div>
+        <img className="catalog-loading-logo" src="/icon.svg" alt="" width="56" height="56" />
         <div className="spinner" />
         <div className="catalog-loading-text">
           {L('မီနူး ကတ်တလောက် ရယူနေပါသည်…', 'Loading the menu…')}
@@ -424,7 +439,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
       <header className="catalog-header">
         <div className="catalog-header-inner">
           <div className="catalog-brand-info">
-            <div className="catalog-logo-badge">စည်</div>
+            <img className="catalog-logo-badge" src="/icon.svg" alt="" width="42" height="42" />
             <div className="catalog-brand-text">
               <h1 className="catalog-brand-title">{shopTitle}</h1>
               <div className="catalog-brand-subtitle">
@@ -667,6 +682,8 @@ export default function CustomerCatalog({ onBackToPos = null }) {
             })}
           </div>
         )}
+
+        <AlinnThitCredit />
       </main>
 
       {/* Floating Bottom Cart Bar */}
