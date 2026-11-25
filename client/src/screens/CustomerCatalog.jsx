@@ -27,7 +27,7 @@ const readSavedOrders = () => {
 };
 
 export default function CustomerCatalog({ onBackToPos = null }) {
-  const { t, isEn } = useI18n();
+  const { t, isEn, isZh } = useI18n();
   const [loading, setLoading] = useState(true);
   const [shop, setShop] = useState({});
   const [categories, setCategories] = useState([]);
@@ -109,7 +109,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(''), 2500);
   };
-  const L = (my, en) => (isEn ? en : my);
+  const L = (my, en, zh) => (isZh ? (zh || t(my)) : isEn ? (en || t(my)) : (my || en));
 
   const orderStateLabel = (state) => ({
     pending: L('အတည်ပြုရန် စောင့်နေသည်', 'Awaiting confirmation'),
@@ -555,7 +555,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
           </button>
           {categories.map((cat, idx) => {
             const count = items.filter(i => i.category_id === cat.id).length;
-            const cName = isEn ? (cat.name_en || cat.name) : (cat.name || cat.name_en);
+            const cName = t(cat.name);
             return (
               <button
                 key={cat.id}
@@ -629,7 +629,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
               const imgUrl = getFoodImage(item, catName);
               const trayItemsOfDish = tray.filter(t => t.id === item.id);
               const totalDishInTray = trayItemsOfDish.reduce((s, it) => s + it.qty, 0);
-              const dishTitle = isEn ? (item.name_en || item.name) : (item.name || item.name_en);
+              const dishTitle = t(item.name);
 
               return (
                 <div key={item.id} className={`catalog-food-card ${totalDishInTray > 0 ? 'in-tray' : ''}`} onClick={() => openDetail(item)}>
@@ -659,7 +659,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
                   <div className="cfc-body">
                     <div className="cfc-title-row">
                       <h3 className="cfc-title">{dishTitle}</h3>
-                      <span className="cfc-cat">{catName}</span>
+                      <span className="cfc-cat">{t(catName)}</span>
                     </div>
 
                     <div className="cfc-foot-row">
@@ -743,7 +743,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
               <div className="cdm-title-wrap">
                 <h2>{isEn ? (detailItem.name_en || detailItem.name) : (detailItem.name || detailItem.name_en)}</h2>
                 <div className="cdm-meta">
-                  <span className="cdm-cat">{isEn ? (categories.find(c => c.id === detailItem.category_id)?.name_en || catMap.get(detailItem.category_id)) : catMap.get(detailItem.category_id)}</span>
+                  <span className="cdm-cat">{t(catMap.get(detailItem.category_id) || '')}</span>
                   {detailItem.code && <span className="cfc-code-badge">{detailItem.code}</span>}
                   {detailItem.station === 'bar' ? (
                     <span className="cfc-station-badge bar-station">🍹 {stationLabel(stations, detailItem.station, isEn)}</span>
@@ -919,7 +919,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
                           className="tray-item-thumb"
                         />
                         <div className="tray-item-info">
-                          <div className="tray-item-name">{it.name}</div>
+                          <div className="tray-item-name">{t(it.name)}</div>
                           {it.note && <div className="tray-item-note">✍️ {it.note}</div>}
                           <div className="tray-item-price">
                             {it.price.toLocaleString()} Ks × {it.qty} = <b>{(it.price * it.qty).toLocaleString()} Ks</b>
@@ -1126,7 +1126,7 @@ export default function CustomerCatalog({ onBackToPos = null }) {
             <div className="ih-step">
               <span className="ih-num">1</span>
               <p>{isIos
-                ? t('Safari တွင် Share ခလုပ် နှိပ်ပြီး "Add to Home Screen" ရွေးပါ။')
+                ? t('Safari တွင် Share ခလုတ် နှိပ်ပြီး "Add to Home Screen" ရွေးပါ။')
                 : t('ဘရောက်ဇာ မီနူး (⋮) မှ "Install app" သို့မဟုတ် "Add to Home screen" ရွေးပါ။')}</p>
             </div>
             <div className="ih-step">

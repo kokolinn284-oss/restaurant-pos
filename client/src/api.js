@@ -42,8 +42,29 @@ export async function api(path, opts = {}) {
   return data;
 }
 
+export const METHOD_KEY = {
+  cash: 'ငွေသား (Cash)',
+  kbzpay: 'KBZPay (KPay QR)',
+  wavepay: 'WavePay',
+  ayapay: 'AYA Pay',
+  bank: 'ဘဏ်ကတ် / Mobile Banking',
+  credit: 'အကြွေး / စာရင်းဖွင့်'
+};
+
+export const METHOD_COLORS = {
+  cash: 'var(--brand)',
+  kbzpay: '#005baa',
+  wavepay: '#fdb913',
+  ayapay: '#dc2626',
+  bank: 'var(--indigo)',
+  credit: 'var(--rose)'
+};
+
+export const PAY_METHODS_FALLBACK = Object.entries(METHOD_KEY).map(([code, name]) => ({ code, name }));
+
 export const money = (n) => {
-  const suffix = typeof document !== 'undefined' && document.documentElement.lang === 'en' ? 'Ks' : 'ကျပ်';
+  const lang = typeof document !== 'undefined' ? document.documentElement.lang : 'my';
+  const suffix = lang === 'en' ? 'Ks' : lang === 'zh' ? '缅币' : 'ကျပ်';
   return `${Number(n || 0).toLocaleString('en-US')} ${suffix}`;
 };
 

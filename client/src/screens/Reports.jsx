@@ -1,10 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { api, money, today } from '../api.js';
+import { api, money, today, METHOD_KEY } from '../api.js';
 import { useI18n } from '../i18n.jsx';
 import { Icon, Modal, Field } from '../components/ui.jsx';
 import { downloadCsv } from '../csv.js';
-
-const METHOD_KEY = { cash: 'လက်ငင်း', kbzpay: 'KBZPay', wavepay: 'WavePay', bank: 'ဘဏ်/ကတ်', credit: 'အကြွေး' };
 
 export default function Reports({ showToast }) {
   const { t } = useI18n();
@@ -19,16 +17,18 @@ export default function Reports({ showToast }) {
   const [cash, setCash] = useState('');
   const [note, setNote] = useState('');
   const [staffSales, setStaffSales] = useState([]);
+  const [voids, setVoids] = useState({ cancelledItems: [], voidedOrders: [] });
 
   const load = async (d) => {
     try {
-      const [s, it, sh, alc, st, hist] = await Promise.all([
+      const [s, it, sh, alc, st, hist, vd] = await Promise.all([
         api(`/reports/summary?date=${d}`),
         api(`/reports/items?from=${d}&to=${d}`),
         api('/shifts/current'),
         api(`/reports/items?from=${d}&to=${d}&alcohol=1`),
         api(`/reports/staff?from=${d}&to=${d}`),
-        api('/shifts')
+        api('/shifts'),
+        api(`/reports/voids?from=${d}&to=${d}`)
       ]);
       setSum(s);
       setItems(it);
@@ -36,6 +36,7 @@ export default function Reports({ showToast }) {
       setShift(sh);
       setStaffSales(st);
       setShiftHistory(hist);
+      setVoids(vd || { cancelledItems: [], voidedOrders: [] });
       const from = new Date(d);
       from.setDate(from.getDate() - 6);
       const f = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}-${String(from.getDate()).padStart(2, '0')}`;
@@ -152,7 +153,7 @@ export default function Reports({ showToast }) {
                 <div className="list-row static" key={it.name}>
                   <div className={`rank ${i === 0 ? 'gold' : ''}`}>{i + 1}</div>
                   <div className="grow">
-                    <strong>{it.name}</strong>
+                    <strong>{t(it.name)}</strong>
                     <small className="muted">{it.qty} {t('ပွဲ')} · {t('အမြတ်')} {money(it.amount - (it.cost || 0))}</small>
                   </div>
                   <span className="amount">{money(it.amount)}</span>
@@ -196,7 +197,7 @@ export default function Reports({ showToast }) {
             {alcohol.map(it => (
               <div className="list-row static" key={it.name}>
                 <div className="rank"><Icon name="beer" size={14} /></div>
-                <div className="grow"><strong>{it.name}</strong><small className="muted">{it.qty} {t('ခု')}</small></div>
+                <div className="grow"><strong>{t(it.name)}</strong><small className="muted">{it.qty} {t('ခု')}</small></div>
                 <span className="amount">{money(it.amount)}</span>
               </div>
             ))}
@@ -265,6 +266,91 @@ export default function Reports({ showToast }) {
                     <td><strong className={h.difference ? (h.difference < 0 ? 'neg' : 'pos') : ''}>{h.difference != null ? money(h.difference) : '—'}</strong></td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <h3><Icon name="close" size={16} /> {t('ပယ်ဖျက်မှု စစ်ဆေးချက်')}</h3>
+          <div className="inline">
+            {voids.summary && (
+              <>
+                <span className="badge bad">{t('ဟင်းပယ်ဖျက်')}: {voids.summary.itemCancelCount} ({money(voids.summary.itemCancelAmount)})</span>
+                <span className="badge bad">{t('ဘီလ်ပယ်ဖျက်')}: {voids.summary.orderVoidCount} ({money(voids.summary.orderVoidAmount)})</span>
+              </>
+            )}
+            <button
+              className="btn ghost sm"
+              disabled={!((voids.auditLogs?.length || 0) + voids.cancelledItems.length + voids.voidedOrders.length)}
+              onClick={() => {
+                const rows = (voids.auditLogs?.length ? voids.auditLogs : [
+                  ...voids.cancelledItems.map(c => ({
+                    created_at: c.cancelled_at || '', action: 'item_cancel', order_no: c.order_no,
+                    table_name: c.table_name || t('ပါဆယ်'), item_name: `${c.name} × ${c.qty}`,
+                    amount: Math.round(c.price * c.qty), actor_name: c.cancelled_by_name || '—', reason: c.cancel_reason || '—'
+                  })),
+                  ...voids.voidedOrders.map(v => ({
+                    created_at: v.closed_at || v.opened_at || '', action: 'order_void', order_no: v.order_no,
+                    table_name: v.table_name || t('ပါဆယ်'), item_name: t('ဘီလ်တစ်ခုလုံး ပယ်ဖျက်'),
+                    amount: v.total || 0, actor_name: v.staff_name || '—', reason: v.reason || v.note || '—'
+                  }))
+                ]);
+                downloadCsv(`void-audit-${date}.csv`,
+                  [t('အချိန်'), t('အမျိုးအစား'), 'Order', t('စားပွဲ'), t('ဟင်း'), t('ပမာဏ'), t('ဝန်ထမ်း'), t('အကြောင်းပြချက်')],
+                  rows.map(r => [r.created_at, r.action, r.order_no, r.table_name, r.item_name, r.amount, r.actor_name, r.reason]));
+                showToast(t('CSV ရယူပြီးပါပြီ'));
+              }}
+            >CSV</button>
+          </div>
+        </div>
+        {(voids.auditLogs?.length ? voids.auditLogs.length === 0 : (voids.cancelledItems.length === 0 && voids.voidedOrders.length === 0)) ? (
+          <div className="empty">{t('ပယ်ဖျက်ထားသော ဟင်းပွဲ/ဘီလ် မရှိပါ')}</div>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Order</th>
+                  <th>{t('အမျိုးအစား')}</th>
+                  <th>{t('ဟင်း')}</th>
+                  <th>{t('ပမာဏ')}</th>
+                  <th>{t('ပယ်ဖျက်သည့် ဝန်ထမ်း')}</th>
+                  <th>{t('အကြောင်းပြချက်')}</th>
+                  <th>{t('အချိန်')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(voids.auditLogs?.length ? voids.auditLogs : [
+                  ...voids.cancelledItems.map(c => ({
+                    id: `ci-${c.id}`, action: 'item_cancel', order_no: c.order_no, table_name: c.table_name,
+                    item_name: c.name, qty: c.qty, amount: Math.round(c.price * c.qty),
+                    actor_name: c.cancelled_by_name, reason: c.cancel_reason, created_at: c.cancelled_at
+                  })),
+                  ...voids.voidedOrders.map(v => ({
+                    id: `vo-${v.id}`, action: 'order_void', order_no: v.order_no, table_name: v.table_name,
+                    item_name: t('ဘီလ်တစ်ခုလုံး ပယ်ဖျက်'), qty: 1, amount: v.total || 0,
+                    actor_name: v.staff_name, reason: v.reason || v.note, created_at: v.closed_at || v.opened_at
+                  }))
+                ]).map(a => {
+                  const actionLabel = a.action === 'paid_void' ? t('ငွေရှင်းပြီး ဘီလ်ဖျက်')
+                    : a.action === 'order_void' ? t('ဘီလ်ပယ်ဖျက်')
+                    : a.action === 'qty_reduce' ? t('အရေအတွက်လျှော့')
+                    : t('ဟင်းပယ်ဖျက်');
+                  return (
+                    <tr key={a.id}>
+                      <td><strong>#{a.order_no}</strong><div className="small muted">{a.table_name || t('ပါဆယ်')}</div></td>
+                      <td><span className="badge bad">{actionLabel}</span></td>
+                      <td>{t(a.item_name)}{a.qty && a.action !== 'order_void' && a.action !== 'paid_void' ? ` × ${a.qty}` : ''}</td>
+                      <td className="neg"><strong>{money(a.amount || 0)}</strong></td>
+                      <td>{a.actor_name || '—'}</td>
+                      <td>{a.reason || '—'}</td>
+                      <td className="small muted">{(a.created_at || '').slice(11, 16) || '—'}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

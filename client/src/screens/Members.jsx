@@ -1,13 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { api, money } from '../api.js';
+import { api, money, PAY_METHODS_FALLBACK } from '../api.js';
 import { useI18n } from '../i18n.jsx';
 import { Icon, Modal, Field, SearchBox } from '../components/ui.jsx';
 
 const TIER_KEY = { normal: 'ပုံမှန်', silver: 'ငွေရောင်', gold: 'ရွှေရောင်' };
 const TIER_ORDER = ['gold', 'silver', 'normal'];
-const CREDIT_METHODS = [
-  ['cash', 'လက်ငင်း'], ['kbzpay', 'KBZPay'], ['wavepay', 'WavePay'], ['bank', 'ဘဏ်/ကတ်']
-];
+const CREDIT_METHODS = PAY_METHODS_FALLBACK.filter(m => m.code !== 'credit').map(m => [m.code, m.name]);
 
 export default function Members({ data, reload, showToast }) {
   const { t } = useI18n();

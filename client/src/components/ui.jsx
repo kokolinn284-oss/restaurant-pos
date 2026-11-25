@@ -114,23 +114,41 @@ export const EnglishFlag = ({ size = 20 }) => (
   </svg>
 );
 
+export const ChineseFlag = ({ size = 20 }) => (
+  <svg width={size} height={Math.round(size * 0.67)} viewBox="0 0 36 24" style={{ borderRadius: 2, verticalAlign: 'middle', flexShrink: 0, boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+    <rect width="36" height="24" fill="#DE2910" />
+    <polygon points="6,3.6 7.1,7 10.7,7 7.8,9.1 8.9,12.5 6,10.4 3.1,12.5 4.2,9.1 1.3,7 4.9,7" fill="#FFDE00" />
+    <polygon points="12,1.8 12.3,3 13.5,3 12.5,3.7 12.9,4.9 12,4.2 11.1,4.9 11.5,3.7 10.5,3 11.7,3" fill="#FFDE00" transform="rotate(23 12 3.3)" />
+    <polygon points="14.4,4.2 14.7,5.4 15.9,5.4 14.9,6.1 15.3,7.3 14.4,6.6 13.5,7.3 13.9,6.1 12.9,5.4 14.1,5.4" fill="#FFDE00" transform="rotate(45 14.4 5.7)" />
+    <polygon points="14.4,8.4 14.7,9.6 15.9,9.6 14.9,10.3 15.3,11.5 14.4,10.8 13.5,11.5 13.9,10.3 12.9,9.6 14.1,9.6" fill="#FFDE00" transform="rotate(0 14.4 9.9)" />
+    <polygon points="12,11.4 12.3,12.6 13.5,12.6 12.5,13.3 12.9,14.5 12,13.8 11.1,14.5 11.5,13.3 10.5,12.6 11.7,12.6" fill="#FFDE00" transform="rotate(-20 12 12.9)" />
+  </svg>
+);
+
 export function LangToggle({ className = '', showLabel = true }) {
   const { lang, setLang } = useI18n();
-  const toggle = () => setLang(lang === 'my' ? 'en' : 'my');
-  const isMy = lang === 'my';
+  const LANG_SEQ = ['my', 'en', 'zh'];
+  const nextLang = LANG_SEQ[(LANG_SEQ.indexOf(lang) + 1) % LANG_SEQ.length] || 'my';
+  const toggle = () => setLang(nextLang);
+
+  const meta = {
+    my: { flag: <MyanmarFlag size={19} />, label: 'မြန်မာ', title: 'Switch to English (EN)' },
+    en: { flag: <EnglishFlag size={19} />, label: 'EN', title: '切换至中文 (ZH)' },
+    zh: { flag: <ChineseFlag size={19} />, label: '中文', title: 'မြန်မာဘာသာသို့ ပြောင်းရန် (MY)' }
+  }[lang] || { flag: <MyanmarFlag size={19} />, label: 'မြန်မာ', title: 'Switch Language' };
 
   return (
     <button
       type="button"
       className={`lang-toggle-btn ${className}`}
       onClick={toggle}
-      title={isMy ? 'Switch to English (EN)' : 'မြန်မာဘာသာသို့ ပြောင်းရန်'}
-      aria-label={isMy ? 'Switch to English (EN)' : 'မြန်မာဘာသာသို့ ပြောင်းရန်'}
+      title={meta.title}
+      aria-label={meta.title}
     >
-      {isMy ? <MyanmarFlag size={19} /> : <EnglishFlag size={19} />}
+      {meta.flag}
       {showLabel && (
         <span className="lang-label-text">
-          {isMy ? 'မြန်မာ' : 'EN'}
+          {meta.label}
         </span>
       )}
     </button>

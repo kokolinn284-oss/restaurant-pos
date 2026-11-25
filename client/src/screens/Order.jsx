@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { api, money } from '../api.js';
+import { api, money, PAY_METHODS_FALLBACK } from '../api.js';
 import { useI18n } from '../i18n.jsx';
 import { Icon, Modal, Field, Empty, stationLabel } from '../components/ui.jsx';
 import Receipt from '../components/Receipt.jsx';
@@ -10,13 +10,7 @@ import {
 } from '../offline.js';
 
 const TINTS = ['#0e9f6e', '#f59e0b', '#5b5bd6', '#0d94d2', '#ef4444', '#8b5cf6'];
-const PAY_FALLBACK = [
-  { code: 'cash', name: 'လက်ငင်း' },
-  { code: 'kbzpay', name: 'KBZPay' },
-  { code: 'wavepay', name: 'WavePay' },
-  { code: 'bank', name: 'ဘဏ်/ကတ်' },
-  { code: 'credit', name: 'အကြွေး' }
-];
+const PAY_FALLBACK = PAY_METHODS_FALLBACK;
 
 export default function Order({ orderId, data, reload, showToast, onBack, openOrder, online = true, drafts = [], syncNow }) {
   const { t, isEn } = useI18n();
@@ -31,6 +25,8 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
   const [selected, setSelected] = useState([]);
   const [moveOpen, setMoveOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [voidOpen, setVoidOpen] = useState(false);
+  const [voidReason, setVoidReason] = useState('');
   const [busyAction, setBusyAction] = useState(false);
   const catsRef = useRef(null);
 
@@ -247,20 +243,35 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
     } catch (e) { showToast(e.message); }
   };
 
-  const voidOrder = async () => {
-    if (!window.confirm(t('ဒီ order ကို ပယ်ဖျက်မှာ သေချာပါသလား?'))) return;
+  const voidOrder = () => {
     if (isLocal) {
+      if (!window.confirm(t('ဒီ order ကို ပယ်ဖျက်မှာ သေချာပါသလား?'))) return;
       removeDraft(orderId);
       showToast(t('ဖျက်ပြီးပါပြီ'));
       onBack();
       return;
     }
     if (!online) return showToast(t('ချိတ်ဆက်မှု ပြန်ရမှ ပယ်ဖျက်နိုင်မည်'));
+    setVoidReason('');
+    setVoidOpen(true);
+  };
+
+  const confirmVoidOrder = async () => {
+    const why = voidReason.trim();
+    if (activeItems.length > 0 && !why) {
+      return showToast(t('ဘီလ်ပယ်ဖျက်ရသည့် အကြောင်းပြချက် ထည့်ပါ'));
+    }
+    setBusyAction(true);
     try {
-      await api(`/orders/${orderId}/void`, { method: 'POST' });
+      await api(`/orders/${orderId}/void`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: why })
+      });
+      setVoidOpen(false);
       await reload();
       onBack();
     } catch (e) { showToast(e.message); }
+    setBusyAction(false);
   };
 
   const toggleSel = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
@@ -345,6 +356,24 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
     if (order?.status !== 'open') onBack();
   };
 
+  const openCheckBill = () => {
+    if (!order || !activeItems.length) return;
+    const taxRate = Number(settings.tax_rate || 0);
+    const serviceRate = Number(settings.service_rate || 0);
+    const tax = Math.round(subtotal * taxRate / 100);
+    const service = Math.round(subtotal * serviceRate / 100);
+    setReceipt({
+      ...order,
+      items: activeItems,
+      subtotal,
+      discount: 0,
+      tax,
+      service,
+      total: subtotal + tax + service,
+      payments: []
+    });
+  };
+
   const catTint = (categoryId) => {
     const idx = categories.findIndex(c => c.id === categoryId);
     return TINTS[(idx < 0 ? 0 : idx) % TINTS.length];
@@ -392,7 +421,7 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
                     className={`pos-chip ${cat === c.id ? 'on' : ''} ${n === 0 ? 'is-empty' : ''}`}
                     style={{ '--dot': catTint(c.id) }} onClick={() => setCat(c.id)}>
                     <span className="pos-chip-dot" />
-                    <span className="pos-chip-name">{c.name}</span>
+                    <span className="pos-chip-name">{t(c.name)}</span>
                     <span className="pos-chip-n">{n}</span>
                   </button>
                 );
@@ -416,7 +445,7 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
                   {i.code ? <span className="item-code-badge">{i.code}</span> : null}
                 </div>
                 <div className="item-card-content">
-                  <span className="item-name">{i.name}</span>
+                  <span className="item-name">{t(i.name)}</span>
                   <span className="item-price">{money(i.price)}</span>
                 </div>
                 <span className="item-add"><Icon name="plus" size={14} /></span>
@@ -479,7 +508,7 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
               )}
               <div className="ci-main">
                 <div className="ci-top">
-                  <span className="ci-name">{it.name}</span>
+                  <span className="ci-name">{t(it.name)}</span>
                   <span className="ci-amount">{money(itemAmount(it))}</span>
                 </div>
                 {(it.is_alcohol || it.status === 'cooking' || it.status === 'served') && (
@@ -542,7 +571,10 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
                   <Icon name="cash" size={17} /> {t('ငွေရှင်း')}
                 </button>
               </div>
-              <div className="cart-actions">
+              <div className="cart-actions cart-actions-grid">
+                <button className="btn ghost sm" onClick={openCheckBill} disabled={!activeItems.length}>
+                  <Icon name="receipt" size={15} /> {t('ဘေလ်စစ်မည်')}
+                </button>
                 <button className="btn danger sm" onClick={voidOrder} disabled={!isOpen}>{t('ပယ်ဖျက်')}</button>
                 <button className="btn ghost sm" onClick={() => setSplitMode(true)} disabled={!isOpen || activeItems.length < 2 || isLocal || !online}>{t('ဘီလ်ခွဲ')}</button>
                 {order.type === 'dine_in' && (
@@ -589,11 +621,41 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
           {(editItem.status === 'cooking' || editItem.status === 'served') && (
             <Field label={t('ပယ်ဖျက်ရသည့် အကြောင်းပြချက်')} hint={t('မီးဖိုပို့ပြီး ဟင်းကို ပယ်ဖျက်ရန် မဖြစ်မနေ ဖြည့်ပါ')}>
               <input value={editItem.cancel_reason || ''} onChange={e => setEditItem({ ...editItem, cancel_reason: e.target.value })} />
+              <div className="chips" style={{ marginTop: 8 }}>
+                {['ဧည့်သည် မစားတော့ပါ', 'မှားရိုက်မိသည်', 'ဟင်းကုန်သွားသည်', 'ကြာလွန်း၍ ဖျက်သည်'].map(r => (
+                  <button key={r} type="button" className="chip"
+                    onClick={() => setEditItem({ ...editItem, cancel_reason: t(r) })}>{t(r)}</button>
+                ))}
+              </div>
             </Field>
           )}
           <button className="btn danger sm" onClick={removeItem}>
             <Icon name="trash" size={16} /> {editItem.status === 'cooking' || editItem.status === 'served' ? t('ဟင်းပယ်ဖျက်မည်') : t('ဖျက်မည်')}
           </button>
+        </Modal>
+      )}
+
+      {voidOpen && (
+        <Modal title={t('ဘီလ်တစ်ခုလုံး ပယ်ဖျက်မည်')} onClose={() => setVoidOpen(false)}
+          footer={<>
+            <button className="btn ghost" onClick={() => setVoidOpen(false)}>{t('မလုပ်တော့')}</button>
+            <button className="btn danger" disabled={busyAction || (activeItems.length > 0 && !voidReason.trim())} onClick={confirmVoidOrder}>
+              <Icon name="trash" size={15} /> {t('ပယ်ဖျက်မည်')}
+            </button>
+          </>}>
+          <p className="hint mt-0">
+            #{order.order_no} · {title} · <strong>{money(subtotal)}</strong>
+          </p>
+          <Field label={t('ပယ်ဖျက်ရသည့် အကြောင်းပြချက်')} hint={t('စစ်ဆေးရေး မှတ်တမ်းအတွက် မဖြစ်မနေ ဖြည့်ပါ')}>
+            <input value={voidReason} onChange={e => setVoidReason(e.target.value)}
+              placeholder={t('ဥပမာ — ဧည့်သည် ပြန်ထွက်သွားသည်')} autoFocus />
+            <div className="chips" style={{ marginTop: 8 }}>
+              {['ဧည့်သည် ပြန်ထွက်သွားသည်', 'မှားရိုက်မိသည်', 'ဟင်းကုန်သွားသည်', 'စားပွဲပြောင်း/ပေါင်း'].map(r => (
+                <button key={r} type="button" className="chip"
+                  onClick={() => setVoidReason(t(r))}>{t(r)}</button>
+              ))}
+            </div>
+          </Field>
         </Modal>
       )}
 
@@ -649,12 +711,17 @@ export default function Order({ orderId, data, reload, showToast, onBack, openOr
       )}
 
       {receipt && (
-        <Modal title={t('ဘောက်ချာ')} wide onClose={closeReceipt}
+        <Modal title={receipt.status === 'open' ? t('ကြိုတင်ဘေလ် (Check Bill)') : t('ဘောက်ချာ')} wide onClose={closeReceipt}
           footer={<>
             <button className="btn ghost" onClick={closeReceipt}>{t('ပိတ်')}</button>
             <button className="btn ghost" onClick={() => window.print()}><Icon name="print" size={16} /> {t('ပရင့်ထုတ်')}</button>
             {settings.printer_mode !== 'browser' && !isLocal && online && (
-              <button className="btn" onClick={printDirect}><Icon name="print" size={16} /> {t('တိုက်ရိုက် ပရင့်')}</button>
+              <button className="btn ghost" onClick={printDirect}><Icon name="print" size={16} /> {t('တိုက်ရိုက် ပရင့်')}</button>
+            )}
+            {receipt.status === 'open' && isOpen && (online || isLocal) && (
+              <button className="btn" onClick={() => { setReceipt(null); setPayOpen(true); }}>
+                <Icon name="cash" size={16} /> {t('ငွေရှင်းမည်')}
+              </button>
             )}
           </>}>
           <Receipt order={receipt} settings={settings} tableName={title} />
@@ -857,7 +924,7 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
             {usable.map(p => (
               <button key={p.id} className={`promo-chip ${promotionId === p.id ? 'on' : ''}`} onClick={() => applyPromo(p)}>
                 <Icon name="spark" size={14} />
-                <span>{p.name}</span>
+                <span>{t(p.name)}</span>
               </button>
             ))}
           </div>
@@ -891,15 +958,63 @@ function PayModal({ order, subtotal, settings, customers = [], promotions = [], 
         <Icon name="plus" size={15} /> {t('ငွေပေးချေမှု ထပ်ထည့်')}
       </button>
 
-      {rows.length === 1 && rows[0].method === 'cash' && (
-        <div className="chips">
-          {[total, Math.ceil(total / 1000) * 1000, Math.ceil(total / 5000) * 5000, Math.ceil(total / 10000) * 10000]
-            .filter((v, i, arr) => v > 0 && arr.indexOf(v) === i)
-            .map(v => (
-              <button key={v} className="chip" onClick={() => setRow(0, { amount: String(v) })}>{money(v)}</button>
-            ))}
-        </div>
-      )}
+      {(() => {
+        const cashIdx = rows.findIndex(r => r.method === 'cash');
+        if (cashIdx === -1) return null;
+        const otherSum = rows.reduce((s, r, idx) => idx === cashIdx ? s : s + amountOf(r), 0);
+        const cashDue = Math.max(0, total - otherSum);
+        const currentCash = amountOf(rows[cashIdx]);
+        const presets = [
+          cashDue,
+          Math.ceil(cashDue / 1000) * 1000,
+          Math.ceil(cashDue / 5000) * 5000,
+          Math.ceil(cashDue / 10000) * 10000,
+          20000,
+          50000,
+          100000
+        ].filter((v, i, arr) => v >= cashDue && v > 0 && v <= Math.max(cashDue * 4, 100000) && arr.indexOf(v) === i)
+          .sort((a, b) => a - b)
+          .slice(0, 6);
+        const addNotes = [1000, 5000, 10000, 20000, 50000];
+        return (
+          <div className="stack" style={{ gap: 8 }}>
+            {presets.length > 0 && (
+              <div className="chips">
+                {presets.map(v => (
+                  <button
+                    key={v}
+                    type="button"
+                    className={`chip ${currentCash === v ? 'on' : ''}`}
+                    onClick={() => setRow(cashIdx, { amount: String(v) })}
+                  >
+                    {v === cashDue ? `${t('အတိအကျ')} · ${money(v)}` : money(v)}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="chips">
+              {addNotes.map(n => (
+                <button
+                  key={`add-${n}`}
+                  type="button"
+                  className="chip add"
+                  onClick={() => setRow(cashIdx, { amount: String(currentCash + n) })}
+                >
+                  +{Number(n).toLocaleString()}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="chip"
+                onClick={() => setRow(cashIdx, { amount: '0' })}
+                title={t('သုညပြန်ထား')}
+              >
+                0
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="pay-tally">
         <div className="row between"><span>{t('ကျန်ငွေ')}</span><strong>{money(remaining)}</strong></div>

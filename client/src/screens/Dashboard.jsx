@@ -1,25 +1,9 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { api, money, today } from '../api.js';
+import { api, money, today, METHOD_KEY, METHOD_COLORS } from '../api.js';
 import { useI18n } from '../i18n.jsx';
 import { Icon, ModalFrame, stationLabel } from '../components/ui.jsx';
 import { AlinnThitPromo } from '../components/AlinnThitPromo.jsx';
-
-const METHOD_KEY = {
-  cash: 'လက်ငင်း',
-  kbzpay: 'KBZPay',
-  wavepay: 'WavePay',
-  bank: 'ဘဏ်/ကတ်',
-  credit: 'အကြွေး'
-};
-
-const METHOD_COLORS = {
-  cash: 'var(--brand)',
-  kbzpay: '#005baa',
-  wavepay: '#fdb913',
-  bank: 'var(--indigo)',
-  credit: 'var(--rose)'
-};
 
 export default function Dashboard({ data, go }) {
   const { t, isEn } = useI18n();
@@ -447,7 +431,7 @@ export default function Dashboard({ data, go }) {
                     {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
                   </div>
                   <div className="dish-info grow">
-                    <strong>{item.name}</strong>
+                    <strong>{t(item.name)}</strong>
                     <small className="muted">{item.qty} {t('ပွဲ')}</small>
                   </div>
                   <span className="dish-amount">{money(item.amount)}</span>

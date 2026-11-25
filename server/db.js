@@ -11,6 +11,7 @@ export const DB_PATH = path.join(DATA_DIR, 'pos.db');
 
 export const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA journal_mode = WAL;');
+db.exec('PRAGMA busy_timeout = 5000;');
 db.exec('PRAGMA foreign_keys = ON;');
 
 db.exec(`
@@ -273,6 +274,25 @@ ensureColumn('orders', 'source', "TEXT NOT NULL DEFAULT 'pos'");
 ensureColumn('orders', 'client_ref', 'TEXT');
 ensureColumn('orders', 'confirmed_at', 'TEXT');
 ensureColumn('orders', 'public_token', "TEXT DEFAULT ''");
+ensureColumn('orders', 'void_reason', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('orders', 'voided_by', 'INTEGER');
+db.exec(`
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  action TEXT NOT NULL,
+  order_id INTEGER,
+  order_no TEXT NOT NULL DEFAULT '',
+  table_name TEXT NOT NULL DEFAULT '',
+  item_name TEXT NOT NULL DEFAULT '',
+  qty REAL NOT NULL DEFAULT 0,
+  amount INTEGER NOT NULL DEFAULT 0,
+  reason TEXT NOT NULL DEFAULT '',
+  staff_id INTEGER,
+  staff_name TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
+`);
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_client_ref ON orders(client_ref) WHERE client_ref IS NOT NULL');
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_public_token ON orders(public_token) WHERE public_token <> \'\'');
 ensureColumn('menu_items', 'is_alcohol', 'INTEGER NOT NULL DEFAULT 0');
@@ -297,7 +317,12 @@ if (!db.prepare("SELECT 1 FROM settings WHERE key = 'expense_categories_seeded'"
 }
 
 const DEFAULT_PAYMENT_METHODS = [
-  ['cash', 'လက်ငင်း'], ['kbzpay', 'KBZPay'], ['wavepay', 'WavePay'], ['bank', 'ဘဏ်/ကတ်'], ['credit', 'အကြွေး']
+  ['cash', 'ငွေသား (Cash)'],
+  ['kbzpay', 'KBZPay (KPay QR)'],
+  ['wavepay', 'WavePay'],
+  ['ayapay', 'AYA Pay'],
+  ['bank', 'ဘဏ်ကတ် / Mobile Banking'],
+  ['credit', 'အကြွေး / စာရင်းဖွင့်']
 ];
 if (!db.prepare("SELECT 1 FROM settings WHERE key = 'payment_methods_seeded'").get()) {
   const insPm = db.prepare('INSERT OR IGNORE INTO payment_methods (code, name, sort) VALUES (?, ?, ?)');
@@ -314,14 +339,14 @@ const count = (table) => db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get().
 
 export function seed() {
   const defaults = {
-    shop_name: 'စည်တော်ကြီး စားသောက်ဆိုင်',
-    shop_name_en: 'Si Daw Gyi Restaurant',
-    address: 'မြို့မဈေး၊ နယ်မြို့',
-    phone: '09-000000000',
+    shop_name: 'စည်တော်ကြီး မြန်မာရိုးရာ စားသောက်ဆိုင် & စည်ဘီယာ',
+    shop_name_en: 'Si Daw Gyi Traditional Restaurant & Beer Garden',
+    address: 'အမှတ် (၂၈)၊ အင်းစိန်လမ်းမကြီး၊ လှည်းတန်း၊ ကမာရွတ်မြို့နယ်၊ ရန်ကုန်မြို့။',
+    phone: '09-450022334, 09-798887766',
     currency: 'MMK',
-    tax_rate: '0',
+    tax_rate: '5',
     service_rate: '0',
-    footer: 'ကျေးဇူးတင်ပါတယ်။ နောက်တစ်ကြိမ် ကြိုဆိုပါတယ်။',
+    footer: 'ဝယ်ယူအားပေးမှုကို အထူးကျေးဇူးတင်ရှိပါသည်။ ဝန်ဆောင်မှုအပေါ် အကြံပြုလိုပါက ဖုန်း ၀၉-၄၅၀၀၂၂၃၃၄ သို့ ဆက်သွယ်နိုင်ပါသည်။ (ကျေးဇူးပြု၍ ဘောင်ချာအား သိမ်းထားပေးပါ)',
     receipt_printer_width: '80',
     points_per_1000: '1',
     point_value: '1',
@@ -333,14 +358,6 @@ export function seed() {
   };
   const insSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
   for (const [k, v] of Object.entries(defaults)) insSetting.run(k, v);
-  // migrate old demo shop name
-  db.prepare("UPDATE settings SET value = ? WHERE key = 'shop_name' AND value = ?")
-    .run('စည်တော်ကြီး စားသောက်ဆိုင်', 'ရွှေမြို့ စားသောက်ဆိုင်');
-  db.prepare("UPDATE settings SET value = ? WHERE key = 'shop_name_en' AND value = ?")
-    .run('Sintawgyi Restaurant', 'Shwe Myo Restaurant');
-  // migrate old English spelling to the current brand name
-  db.prepare("UPDATE settings SET value = ? WHERE key = 'shop_name_en' AND value = ?")
-    .run('Si Daw Gyi Restaurant', 'Sintawgyi Restaurant');
 
   if (count('staff') === 0) {
     const ins = db.prepare('INSERT INTO staff (name, pin, role) VALUES (?, ?, ?)');
@@ -351,78 +368,148 @@ export function seed() {
 
   if (count('categories') === 0) {
     const ins = db.prepare('INSERT INTO categories (name, sort) VALUES (?, ?)');
-    const cats = ['မြန်မာထမင်း', 'ခေါက်ဆွဲ & မုန့်ဟင်းခါး', 'အသားကင် & ကြော်', 'ဟင်းချို & အခြမ်း', 'အအေးနှင့် သောက်ရေ', 'ကော်ဖီ & လဖက်ရည်'];
-    cats.forEach((c, i) => ins.run(c, i));
+    const cats = [
+      'မြန်မာထမင်းနှင့် ဟင်းလျာများ',
+      'ထမင်းကြော်နှင့် ခေါက်ဆွဲကြော်',
+      'မုန့်ဟင်းခါးနှင့် ရှမ်းအစားအစာ',
+      'အသားကင်နှင့် အကြော်အမြည်း',
+      'အရံဟင်းနှင့် ရိုးရာဟင်းချို',
+      'သစ်သီးဖျော်ရည်နှင့် အအေး',
+      'လက်ဖက်ရည်နှင့် ကော်ဖီ',
+      'စည်ဘီယာနှင့် အဖျော်ယမကာ'
+    ];
+    cats.forEach((c, i) => ins.run(c, (i + 1) * 10));
   }
 
   if (count('menu_items') === 0) {
-    const ins = db.prepare('INSERT INTO menu_items (category_id, name, price, cost, unit, sort) VALUES (?, ?, ?, ?, ?, ?)');
+    const ins = db.prepare(`INSERT INTO menu_items (category_id, name, price, cost, unit, sort, is_alcohol, station, image)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+
     const items = [
-      [1, 'ကြက်သားထမင်းကြော်', 3500, 1800, 'ပွဲ', 1],
-      [1, 'ဝက်သားထမင်းကြော်', 3500, 1800, 'ပွဲ', 2],
-      [1, 'ငါးကြင်းထမင်းကြော်', 4000, 2000, 'ပွဲ', 3],
-      [1, 'ကြက်သားဟင်းထမင်း', 4000, 1900, 'ပွဲ', 4],
-      [1, 'ဝက်သားဟင်းထမင်း', 4000, 1900, 'ပွဲ', 5],
-      [2, 'မုန့်ဟင်းခါး', 2500, 1200, 'ပွဲ', 1],
-      [2, 'ခေါက်ဆွဲကြော်', 3000, 1500, 'ပွဲ', 2],
-      [2, 'ရှမ်းခေါက်ဆွဲ', 3000, 1500, 'ပွဲ', 3],
-      [2, 'မုန့်တီ', 3000, 1400, 'ပွဲ', 4],
-      [3, 'ကြက်သားကင်', 6000, 3200, 'ပွဲ', 1],
-      [3, 'ဝက်သားကင်', 5500, 2800, 'ပွဲ', 2],
-      [3, 'ငါးကြော်ခြောက်', 5000, 2500, 'ပွဲ', 3],
-      [3, 'ကြက်သားကြော်', 4500, 2200, 'ပွဲ', 4],
-      [4, 'ပဲပြုတ်', 1500, 600, 'ပန်းကန်', 1],
-      [4, 'ချဉ်ပေါင်ရွက်ကြော်', 2000, 900, 'ပန်းကန်', 2],
-      [4, 'ကြက်ဥပြုတ်', 1000, 500, 'လုံး', 3],
-      [5, 'ရေသန့်ဘူး', 700, 300, 'ဘူး', 1],
-      [5, 'ကိုကာကိုလာ', 1200, 700, 'ဘူး', 2],
-      [5, 'လိမ္မော်ရည်', 1500, 800, 'ခွက်', 3],
-      [5, 'ဖျော်ရည်', 2000, 900, 'ခွက်', 4],
-      [6, 'လဖက်ရည်', 1500, 600, 'ခွက်', 1],
-      [6, 'ကော်ဖီ', 2000, 800, 'ခွက်', 2],
-      [6, 'နို့လဖက်ရည်', 2000, 800, 'ခွက်', 3]
+      // 1. မြန်မာထမင်းနှင့် ဟင်းလျာများ
+      [1, 'ကြက်သားဆီပြန်ဟင်း + ထမင်း', 6500, 3200, 'ပွဲ', 1, 0, 'kitchen', '/menu/chicken_curry_rice.webp'],
+      [1, 'ဝက်သားနီချက် + ထမင်း', 7000, 3600, 'ပွဲ', 2, 0, 'kitchen', '/menu/pork_curry_rice.webp'],
+      [1, 'ငါးကြင်းဆီပြန်ဟင်း + ထမင်း', 6500, 3100, 'ပွဲ', 3, 0, 'kitchen', '/menu/fish_fried_rice.webp'],
+      [1, 'အမဲသားနှပ်ဟင်း + ထမင်း', 8000, 4200, 'ပွဲ', 4, 0, 'kitchen', '/menu/pork_curry_rice.webp'],
+      [1, 'ပုစွန်ဆီပြန်ဟင်း + ထမင်း', 8500, 4500, 'ပွဲ', 5, 0, 'kitchen', '/menu/chicken_curry_rice.webp'],
+      [1, 'ထမင်းဖြူ (ပွဲ)', 1000, 400, 'ပွဲ', 6, 0, 'kitchen', '/menu/boiled_peas.webp'],
+
+      // 2. ထမင်းကြော်နှင့် ခေါက်ဆွဲကြော်
+      [2, 'ကြက်သားထမင်းကြော် (ကြက်ဥပါ)', 5500, 2600, 'ပွဲ', 1, 0, 'kitchen', '/menu/chicken_fried_rice.webp'],
+      [2, 'ဝက်သားထမင်းကြော် (ကြက်ဥပါ)', 5500, 2600, 'ပွဲ', 2, 0, 'kitchen', '/menu/pork_fried_rice.webp'],
+      [2, 'ပင်လယ်စာထမင်းကြော်', 7000, 3500, 'ပွဲ', 3, 0, 'kitchen', '/menu/fish_fried_rice.webp'],
+      [2, 'ကြက်သားခေါက်ဆွဲကြော်', 5000, 2400, 'ပွဲ', 4, 0, 'kitchen', '/menu/fried_noodles.webp'],
+      [2, 'ပင်လယ်စာကြာဇံကြော်', 6500, 3200, 'ပွဲ', 5, 0, 'kitchen', '/menu/fried_noodles.webp'],
+      [2, 'ကြက်သားထမင်းပေါင်း', 6000, 2800, 'ပွဲ', 6, 0, 'kitchen', '/menu/chicken_curry_rice.webp'],
+
+      // 3. မုန့်ဟင်းခါးနှင့် ရှမ်းအစားအစာ
+      [3, 'မုန့်ဟင်းခါး (ဘဲဥ၊ အကြော်စုံပါ)', 3500, 1600, 'ပွဲ', 1, 0, 'kitchen', '/menu/mohinga.webp'],
+      [3, 'ရခိုင်မုန့်တီ (သုပ် / အရည်)', 3500, 1500, 'ပွဲ', 2, 0, 'kitchen', '/menu/mont_di.webp'],
+      [3, 'ရှမ်းခေါက်ဆွဲ (ကြက် / ဝက်)', 4000, 1900, 'ပွဲ', 3, 0, 'kitchen', '/menu/shan_noodles.webp'],
+      [3, 'နန်းကြီးသုပ် (ကြက်သားပါ)', 4500, 2100, 'ပွဲ', 4, 0, 'kitchen', '/menu/mohinga.webp'],
+
+      // 4. အသားကင်နှင့် အကြော်အမြည်း
+      [4, 'ကြက်သားကင် (မာလာဆော့စ်)', 8500, 4200, 'ပွဲ', 1, 0, 'kitchen', '/menu/grilled_chicken.webp'],
+      [4, 'ဝက်သုံးထပ်သားကင်', 8000, 4000, 'ပွဲ', 2, 0, 'kitchen', '/menu/grilled_pork.webp'],
+      [4, 'ကြက်တောင်ပံကြော် (၅ တောင့်)', 6500, 3100, 'ပွဲ', 3, 0, 'kitchen', '/menu/fried_chicken.webp'],
+      [4, 'ငါးဖယ်သုပ်', 4500, 2000, 'ပွဲ', 4, 0, 'kitchen', '/menu/mont_di.webp'],
+      [4, 'လက်ဖက်သုပ် (အကြော်စုံပါ)', 4000, 1800, 'ပွဲ', 5, 0, 'kitchen', '/menu/boiled_peas.webp'],
+      [4, 'ငါးကြော်ခြောက် (ခရမ်းချဉ်သီးဆော့စ်)', 6500, 3000, 'ပွဲ', 6, 0, 'kitchen', '/menu/fried_dried_fish.webp'],
+
+      // 5. အရံဟင်းနှင့် ရိုးရာဟင်းချို
+      [5, 'ချဉ်ပေါင်ရွက်ကြော်', 2500, 1100, 'ပန်းကန်', 1, 0, 'kitchen', '/menu/roselle_stirfry.webp'],
+      [5, 'ပဲပြုတ် (ဆီဆမ်း)', 2000, 800, 'ပန်းကန်', 2, 0, 'kitchen', '/menu/boiled_peas.webp'],
+      [5, 'ကြက်ဥပြုတ်', 1200, 600, 'လုံး', 3, 0, 'kitchen', '/menu/boiled_eggs.webp'],
+      [5, 'သီးစုံဟင်းချို', 2500, 1000, 'ပန်းကန်', 4, 0, 'kitchen', '/menu/roselle_stirfry.webp'],
+      [5, 'ငပိရည်တို့စရာအစုံ', 3000, 1200, 'ပွဲ', 5, 0, 'kitchen', '/menu/boiled_peas.webp'],
+
+      // 6. သစ်သီးဖျော်ရည်နှင့် အအေး
+      [6, 'ထောပတ်သီးဖျော်ရည်', 3500, 1600, 'ခွက်', 1, 0, 'bar', '/menu/fruit_shake.webp'],
+      [6, 'လိမ္မော်ရည် (လတ်လတ်ဆတ်ဆတ်)', 3000, 1400, 'ခွက်', 2, 0, 'bar', '/menu/orange_juice.webp'],
+      [6, 'သံပုရာရည်', 2000, 800, 'ခွက်', 3, 0, 'bar', '/menu/fruit_shake.webp'],
+      [6, 'ကိုကာကိုလာ (အေး)', 2000, 1200, 'ဘူး', 4, 0, 'bar', '/menu/cola.webp'],
+      [6, 'ရေသန့် (၁ လီတာ)', 1000, 400, 'ဘူး', 5, 0, 'bar', '/menu/purified_water.webp'],
+
+      // 7. လက်ဖက်ရည်နှင့် ကော်ဖီ
+      [7, 'ရိုးရာလက်ဖက်ရည် (ချိုစိမ့်)', 1800, 700, 'ခွက်', 1, 0, 'bar', '/menu/milk_tea.webp'],
+      [7, 'ရိုးရာလက်ဖက်ရည် (ပေါ့ကျ)', 1800, 700, 'ခွက်', 2, 0, 'bar', '/menu/milk_tea.webp'],
+      [7, 'နို့လက်ဖက်ရည်အေး', 2500, 1000, 'ခွက်', 3, 0, 'bar', '/menu/milk_tea_iced.webp'],
+      [7, 'ကော်ဖီ (အပူ)', 2500, 1000, 'ခွက်', 4, 0, 'bar', '/menu/coffee.webp'],
+      [7, 'ကော်ဖီအေး (Iced Coffee)', 3000, 1200, 'ခွက်', 5, 0, 'bar', '/menu/coffee.webp'],
+
+      // 8. စည်ဘီယာနှင့် အဖျော်ယမကာ
+      [8, 'မြန်မာဒရော့ဖ်ဘီယာ (ဖန်ခွက်)', 3000, 1500, 'ခွက်', 1, 1, 'bar', '/menu/draft_beer_glass.webp'],
+      [8, 'မြန်မာဒရော့ဖ်ဘီယာ (ကရား)', 10000, 5000, 'ကရား', 2, 1, 'bar', '/menu/draft_beer_mug.webp'],
+      [8, 'မြန်မာဘီယာ (ပုလင်း)', 4800, 3200, 'ပုလင်း', 3, 1, 'bar', '/menu/beer_bottle.webp'],
+      [8, 'တိုက်ဂါဘီယာ (ပုလင်း)', 5200, 3500, 'ပုလင်း', 4, 1, 'bar', '/menu/beer_bottle.webp'],
+      [8, 'ဟိုင်းနီကန်ဘီယာ (ပုလင်း)', 5800, 4000, 'ပုလင်း', 5, 1, 'bar', '/menu/beer_bottle.webp'],
+      [8, 'Grand Royal ဝီစကီ (ပုလင်း)', 28000, 19000, 'ပုလင်း', 6, 1, 'bar', '/menu/whisky_bottle.webp'],
+      [8, 'Grand Royal ဝီစကီ (ပက်/ခွက်)', 3500, 1800, 'ခွက်', 7, 1, 'bar', '/menu/whisky_glass.webp'],
+      [8, 'ဂျင် (ခွက်)', 3000, 1500, 'ခွက်', 8, 1, 'bar', '/menu/gin_glass.webp']
     ];
+
     for (const it of items) ins.run(...it);
   }
 
   if (count('tables') === 0) {
     const ins = db.prepare('INSERT INTO tables (name, zone, seats) VALUES (?, ?, ?)');
-    for (let i = 1; i <= 8; i++) ins.run(`စားပွဲ ${i}`, 'အပြင်', 4);
-    ins.run('အခန်း 1', 'အခန်း', 8);
-    ins.run('အခန်း 2', 'အခန်း', 8);
+    for (let i = 1; i <= 8; i++) ins.run(`စားပွဲ ${i}`, 'ဆိုင်တွင်း (Aircon)', 4);
+    for (let i = 9; i <= 14; i++) ins.run(`စားပွဲ ${i}`, 'အပြင်ဘက် (Garden)', 4);
+    ins.run('VIP-1', 'VIP အခန်း', 8);
+    ins.run('VIP-2', 'VIP အခန်း', 10);
   }
 
   if (count('inventory_items') === 0) {
     const ins = db.prepare('INSERT INTO inventory_items (name, unit, qty, reorder_level, cost) VALUES (?, ?, ?, ?, ?)');
     const inv = [
-      ['ဆန်', 'ကီလို', 50, 10, 2200],
-      ['ကြက်သား', 'ကီလို', 15, 5, 9000],
-      ['ဝက်သား', 'ကီလို', 12, 5, 11000],
-      ['ငါး', 'ကီလို', 8, 3, 8000],
-      ['ဆီ', 'လီတာ', 10, 3, 4500],
-      ['ကြက်သွန်', 'ကီလို', 6, 2, 3000],
-      ['ငရုတ်သီး', 'ကီလို', 2, 1, 5000],
-      ['ရေသန့်ဘူး', 'ဘူး', 60, 20, 300]
+      ['ဆန် (ပေါ်ဆန်းမွှေး)', 'ကီလို', 100, 20, 3500],
+      ['ကြက်သားလတ်လတ်ဆတ်ဆတ်', 'ကီလို', 30, 8, 12000],
+      ['ဝက်သား (သုံးထပ်သား)', 'ကီလို', 25, 6, 16000],
+      ['ငါးကြင်းလတ်ဆတ်', 'ကီလို', 15, 5, 11000],
+      ['အမဲသား', 'ကီလို', 15, 5, 22000],
+      ['ပုစွန်ကျား', 'ကီလို', 10, 3, 28000],
+      ['ပဲဆီသန့်', 'လီတာ', 30, 10, 11000],
+      ['ကြက်သွန်နီ/ဖြူ', 'ကီလို', 20, 5, 4500],
+      ['ငရုတ်သီးစိမ်း/ခြောက်', 'ကီလို', 8, 2, 7000],
+      ['ပဲပြုတ်', 'ကီလို', 10, 3, 3000],
+      ['လက်ဖက်ညွန့်အိ', 'ကီလို', 8, 2, 8500],
+      ['နို့ဆီ/နို့စိမ်း', 'ဘူး', 48, 12, 2800],
+      ['လက်ဖက်ခြောက်/ကော်ဖီမှုန့်', 'ကီလို', 6, 2, 9000],
+      ['ရေသန့် (၁ လီတာ)', 'ဘူး', 120, 30, 400],
+      ['ကိုကာကိုလာ (ဘူး)', 'ဘူး', 72, 24, 1200],
+      ['ဒရပ်ဘီယာ (စည်)', 'လီတာ', 100, 20, 4500],
+      ['မြန်မာဘီယာ (ပုလင်း)', 'ပုလင်း', 48, 12, 3200],
+      ['တိုက်ဂါဘီယာ (ပုလင်း)', 'ပုလင်း', 36, 12, 3500],
+      ['ဟိုင်းနီကန်ဘီယာ (ပုလင်း)', 'ပုလင်း', 36, 12, 4000],
+      ['Grand Royal ဝီစကီ', 'ပုလင်း', 18, 6, 19000]
     ];
     for (const row of inv) ins.run(...row);
   }
 
   if (count('customers') === 0) {
     const ins = db.prepare('INSERT INTO customers (name, phone, points, tier) VALUES (?, ?, ?, ?)');
-    ins.run('ဦးသောင်းလှ', '09-111111111', 12, 'normal');
-    ins.run('မခင်မြ', '09-222222222', 35, 'gold');
+    ins.run('ဦးကျော်သူ', '09-450012345', 50, 'gold');
+    ins.run('ဒေါ်သန်းသန်းဆင့်', '09-798881234', 20, 'normal');
+    ins.run('ကိုဝင်းမင်းထွန်း', '09-250098765', 85, 'vip');
   }
 
   if (count('recipe_items') === 0 && count('menu_items') > 0 && count('inventory_items') > 0) {
     const mi = Object.fromEntries(db.prepare('SELECT id, name FROM menu_items').all().map(r => [r.name, r.id]));
     const inv = Object.fromEntries(db.prepare('SELECT id, name FROM inventory_items').all().map(r => [r.name, r.id]));
     const recipes = {
-      'ကြက်သားထမင်းကြော်': [['ဆန်', 0.15], ['ကြက်သား', 0.12], ['ဆီ', 0.03], ['ကြက်သွန်', 0.02]],
-      'ဝက်သားထမင်းကြော်': [['ဆန်', 0.15], ['ဝက်သား', 0.12], ['ဆီ', 0.03], ['ကြက်သွန်', 0.02]],
-      'ကြက်သားကင်': [['ကြက်သား', 0.25], ['ဆီ', 0.02], ['ငရုတ်သီး', 0.01]],
-      'ဝက်သားကင်': [['ဝက်သား', 0.25], ['ဆီ', 0.02], ['ငရုတ်သီး', 0.01]],
-      'မုန့်ဟင်းခါး': [['ဆန်', 0.1], ['ဆီ', 0.02]],
-      'ရေသန့်ဘူး': [['ရေသန့်ဘူး', 1]]
+      'ကြက်သားဆီပြန်ဟင်း + ထမင်း': [['ဆန် (ပေါ်ဆန်းမွှေး)', 0.18], ['ကြက်သားလတ်လတ်ဆတ်ဆတ်', 0.15], ['ပဲဆီသန့်', 0.04], ['ကြက်သွန်နီ/ဖြူ', 0.03]],
+      'ဝက်သားနီချက် + ထမင်း': [['ဆန် (ပေါ်ဆန်းမွှေး)', 0.18], ['ဝက်သား (သုံးထပ်သား)', 0.15], ['ပဲဆီသန့်', 0.04], ['ကြက်သွန်နီ/ဖြူ', 0.03]],
+      'ကြက်သားထမင်းကြော် (ကြက်ဥပါ)': [['ဆန် (ပေါ်ဆန်းမွှေး)', 0.18], ['ကြက်သားလတ်လတ်ဆတ်ဆတ်', 0.1], ['ပဲဆီသန့်', 0.03]],
+      'မုန့်ဟင်းခါး (ဘဲဥ၊ အကြော်စုံပါ)': [['ပဲဆီသန့်', 0.03], ['ကြက်သွန်နီ/ဖြူ', 0.02]],
+      'ရေသန့် (၁ လီတာ)': [['ရေသန့် (၁ လီတာ)', 1]],
+      'ကိုကာကိုလာ (အေး)': [['ကိုကာကိုလာ (ဘူး)', 1]],
+      'မြန်မာဒရော့ဖ်ဘီယာ (ဖန်ခွက်)': [['ဒရပ်ဘီယာ (စည်)', 0.33]],
+      'မြန်မာဒရော့ဖ်ဘီယာ (ကရား)': [['ဒရပ်ဘီယာ (စည်)', 1.2]],
+      'မြန်မာဘီယာ (ပုလင်း)': [['မြန်မာဘီယာ (ပုလင်း)', 1]],
+      'တိုက်ဂါဘီယာ (ပုလင်း)': [['တိုက်ဂါဘီယာ (ပုလင်း)', 1]],
+      'ဟိုင်းနီကန်ဘီယာ (ပုလင်း)': [['ဟိုင်းနီကန်ဘီယာ (ပုလင်း)', 1]],
+      'Grand Royal ဝီစကီ (ပုလင်း)': [['Grand Royal ဝီစကီ', 1]],
+      'Grand Royal ဝီစကီ (ပက်/ခွက်)': [['Grand Royal ဝီစကီ', 0.05]]
     };
     const ins = db.prepare('INSERT INTO recipe_items (menu_item_id, inventory_item_id, qty) VALUES (?, ?, ?)');
     for (const [name, lines] of Object.entries(recipes)) {
@@ -435,8 +522,9 @@ export function seed() {
 
   if (count('promotions') === 0) {
     const ins = db.prepare('INSERT INTO promotions (name, type, value, min_subtotal, start_time, end_time, active) VALUES (?, ?, ?, ?, ?, ?, ?)');
-    ins.run('ညနေ ၅% လျှော့', 'percent', 5, 0, '17:00', '21:00', 1);
-    ins.run('၁၀,၀၀၀ အထက် ၁,၀၀၀ လျှော့', 'amount', 1000, 10000, '', '', 1);
+    ins.run('နေ့လယ်စာ ပရိုမိုးရှင်း (၁၀%)', 'percent', 10, 15000, '11:00', '14:00', 1);
+    ins.run('ညနေဘီယာ Happy Hour (၅%)', 'percent', 5, 20000, '17:00', '20:00', 1);
+    ins.run('၃၀,၀၀၀ ကျပ်အထက် ၂,၀၀၀ လျှော့', 'amount', 2000, 30000, '', '', 1);
   }
 }
 
@@ -503,7 +591,7 @@ function seedAlcoholMenu() {
     for (const [invName, qty] of lines) if (inv[invName]) insRecipe.run(itemId, inv[invName], qty);
   }
 }
-seedAlcoholMenu();
+// seedAlcoholMenu(); // integrated in seed()
 
 /* One-time backfill of seeded menu photos (keeps later manual clears). */
 function seedMenuImages() {
@@ -529,8 +617,10 @@ function seedMenuImages() {
     'ကိုကာကိုလာ': 'cola',
     'လိမ္မော်ရည်': 'orange_juice',
     'ဖျော်ရည်': 'fruit_shake',
+    'လက်ဖက်ရည်': 'milk_tea',
     'လဖက်ရည်': 'milk_tea',
     'ကော်ဖီ': 'coffee',
+    'နို့လက်ဖက်ရည်': 'milk_tea_iced',
     'နို့လဖက်ရည်': 'milk_tea_iced',
     'မြန်မာဘီယာ (ဘူး)': 'beer_bottle',
     'တိုက်ဂါဘီယာ (ဘူး)': 'beer_bottle',

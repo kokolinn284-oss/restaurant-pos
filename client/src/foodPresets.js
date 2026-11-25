@@ -37,7 +37,7 @@ export const FOOD_PRESETS = [
   {
     id: 'noodles',
     name: 'ခေါက်ဆွဲ (Noodles)',
-    keywords: ['ခေါက်ဆွဲ', 'ရှမ်းခေါက်ဆွဲ', 'ကြာဇံ'],
+    keywords: ['ခေါက်ဆွဲ', 'ရှမ်းခေါက်ဆွဲ', 'ကြာဇံ', 'နန်းကြီးသုပ်'],
     category: 'မုန့်/ခေါက်ဆွဲ',
     url: svgWrap(
       `<path d="M16 52c0 19 15 33 34 33s34-14 34-33H16z" fill="%23dc2626"/>` +
@@ -93,7 +93,7 @@ export const FOOD_PRESETS = [
   {
     id: 'side_dish',
     name: 'အရံဟင်း (Side Dish)',
-    keywords: ['ပဲပြုတ်', 'ချဉ်ပေါင်', 'အရံဟင်း', 'သုပ်', 'အသုပ်', 'ငါးပိ'],
+    keywords: ['ပဲပြုတ်', 'ချဉ်ပေါင်', 'အရံဟင်း', 'သုပ်', 'အသုပ်', 'ငါးပိ', 'ငပိရည်', 'ဟင်းချို'],
     category: 'အရံဟင်း',
     url: svgWrap(
       `<ellipse cx="50" cy="56" rx="34" ry="18" fill="%2315803d"/>` +
@@ -135,8 +135,8 @@ export const FOOD_PRESETS = [
   },
   {
     id: 'tea',
-    name: 'လဖက်ရည် (Tea)',
-    keywords: ['လဖက်ရည်', 'လက်ဖက်ရည်', 'နို့လဖက်ရည်', 'ရေနွေးကြမ်း'],
+    name: 'လက်ဖက်ရည် (Tea)',
+    keywords: ['လက်ဖက်ရည်', 'လဖက်ရည်', 'နို့လက်ဖက်ရည်', 'နို့လဖက်ရည်', 'ရေနွေးကြမ်း'],
     category: 'အပူ',
     url: svgWrap(
       `<ellipse cx="50" cy="74" rx="30" ry="8" fill="%23cbd5e1"/>` +
@@ -163,7 +163,7 @@ export const FOOD_PRESETS = [
   {
     id: 'beer',
     name: 'ဘီယာ (Beer)',
-    keywords: ['ဘီယာ', 'beer', 'ဒရပ်ဘီယာ', 'draft'],
+    keywords: ['ဘီယာ', 'beer', 'ဒရပ်ဘီယာ', 'ဒရော့ဖ်', 'စည်ဘီယာ', 'draft'],
     category: 'ဘား/အရက်',
     url: svgWrap(
       `<path d="M30 36h34v42c0 4-4 8-8 8H38c-4 0-8-4-8-8V36z" fill="%23eab308"/>` +
