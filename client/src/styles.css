@@ -3,6 +3,24 @@
    Light / Dark · 3D tactile controls · POS terminal layout
    ============================================================ */
 
+@font-face {
+  font-family: "Noto Sans Myanmar";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/NotoSansMyanmar-Regular.woff2") format("woff2");
+  unicode-range: U+1000-109F, U+A9E0-A9FF, U+AA60-AA7F, U+200C-200D, U+25CC;
+}
+
+@font-face {
+  font-family: "Noto Sans Myanmar";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./assets/fonts/NotoSansMyanmar-Bold.woff2") format("woff2");
+  unicode-range: U+1000-109F, U+A9E0-A9FF, U+AA60-AA7F, U+200C-200D, U+25CC;
+}
+
 :root,
 :root[data-theme="light"] {
   color-scheme: light;
@@ -146,7 +164,7 @@ body {
     radial-gradient(900px 520px at -10% 110%, color-mix(in srgb, var(--amber) 8%, transparent), transparent 60%),
     var(--bg);
   color: var(--ink);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans Myanmar", "Pyidaungsu", "Myanmar Text", sans-serif;
+  font-family: "Noto Sans Myanmar", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Pyidaungsu", "Myanmar Text", sans-serif;
   font-size: 15px;
   line-height: 1.55;
   text-rendering: optimizeLegibility;
@@ -1404,7 +1422,7 @@ input[type="date"], input[type="datetime-local"] { color-scheme: inherit; }
    ============================================================ */
 .receipt-sheet {
   background: #fff; color: #111; width: 80mm; max-width: 100%; margin: 0 auto; padding: 14px 11px;
-  font-family: "Padauk", "Pyidaungsu", "Noto Sans Myanmar", "Myanmar Text", monospace; font-size: 12.5px;
+  font-family: "Noto Sans Myanmar", "Padauk", "Pyidaungsu", "Myanmar Text", monospace; font-size: 12.5px;
   border-radius: 4px; box-shadow: 0 10px 35px -15px rgba(0, 0, 0, .5);
 }
 .receipt-sheet hr { border: 0; border-top: 1px dashed #999; margin: 7px 0; }
